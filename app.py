@@ -7,11 +7,111 @@ Reads from the summaries JSON files and displays them in a card-based interface.
 import os
 import json
 import glob
+import threading
+import queue
 from datetime import datetime
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, redirect, url_for, flash, session
 from pathlib import Path
 
+# Import pipeline components
+try:
+    from web_scraper import NewsScraper
+    from html_parser import HTMLParser  
+    from ai_summarizer import AISummarizer
+    PIPELINE_AVAILABLE = True
+except ImportError:
+    PIPELINE_AVAILABLE = False
+
 app = Flask(__name__)
+app.secret_key = 'your-secret-key-change-this'  # Change this in production
+
+# Global variables for pipeline status
+pipeline_status = {
+    'running': False,
+    'phase': None,
+    'progress': 0,
+    'logs': [],
+    'last_run': None
+}
+
+class PipelineRunner:
+    def __init__(self):
+        self.status_queue = queue.Queue()
+        self.log_queue = queue.Queue()
+    
+    def update_status(self, phase, progress, message):
+        """Update pipeline status"""
+        global pipeline_status
+        pipeline_status['phase'] = phase
+        pipeline_status['progress'] = progress
+        pipeline_status['logs'].append({
+            'timestamp': datetime.now().isoformat(),
+            'message': message
+        })
+        # Keep only last 100 log entries
+        if len(pipeline_status['logs']) > 100:
+            pipeline_status['logs'] = pipeline_status['logs'][-100:]
+    
+    def run_pipeline(self, urls=None, use_selenium=False, model="claude-3-5-sonnet-20241022"):
+        """Run the pipeline in a separate thread"""
+        global pipeline_status
+        
+        try:
+            pipeline_status['running'] = True
+            pipeline_status['logs'] = []
+            pipeline_status['last_run'] = datetime.now().isoformat()
+            
+            self.update_status('initialization', 10, 'Initializing pipeline components...')
+            
+            # Initialize components
+            scraper = NewsScraper(use_selenium=use_selenium)
+            parser = HTMLParser()
+            
+            try:
+                summarizer = AISummarizer(model=model)
+            except Exception as e:
+                self.update_status('error', 0, f'Failed to initialize AI summarizer: {e}')
+                return
+            
+            # Phase 1: Scraping
+            self.update_status('scraping', 25, f'Starting web scraping for {len(urls) if urls else "default"} URLs...')
+            
+            if urls:
+                scraped_files = scraper.scrape_urls(urls)
+            else:
+                default_urls = [
+                    "https://www.marketwatch.com/investing",
+                    "https://finance.yahoo.com/news",
+                    "https://www.cnbc.com/investing/",
+                    "https://www.reuters.com/business/finance/",
+                    "https://www.bloomberg.com/markets"
+                ]
+                scraped_files = scraper.scrape_urls(default_urls)
+            
+            self.update_status('scraping', 40, f'Scraping completed. {len(scraped_files)} files scraped.')
+            
+            # Phase 2: Parsing
+            self.update_status('parsing', 50, 'Starting HTML parsing and text extraction...')
+            parsed_files = parser.parse_all_html_files()
+            self.update_status('parsing', 65, f'Parsing completed. {len(parsed_files)} files parsed.')
+            
+            # Phase 3: Summarization
+            self.update_status('summarization', 75, 'Starting AI summarization...')
+            summary_files = summarizer.batch_process_with_retry()
+            self.update_status('summarization', 90, f'Summarization completed. {len(summary_files)} summaries generated.')
+            
+            # Cleanup
+            scraper.close()
+            
+            self.update_status('completed', 100, f'Pipeline completed successfully! Generated {len(summary_files)} summaries.')
+            
+        except Exception as e:
+            self.update_status('error', 0, f'Pipeline failed: {str(e)}')
+        finally:
+            pipeline_status['running'] = False
+
+# Initialize pipeline runner
+pipeline_runner = PipelineRunner()
 
 class SummaryDataLoader:
     def __init__(self, summaries_dir="summaries"):
@@ -131,8 +231,70 @@ def api_stats():
     stats = data_loader.get_summary_stats(summaries)
     return jsonify(stats)
 
-@app.route('/summary/<filename>')
-def view_summary(filename):
+@app.route('/admin')
+def admin():
+    """Admin dashboard page"""
+    return render_template('admin.html', 
+                         pipeline_status=pipeline_status,
+                         pipeline_available=PIPELINE_AVAILABLE)
+
+@app.route('/admin/run_pipeline', methods=['POST'])
+def run_pipeline():
+    """Start the pipeline"""
+    if not PIPELINE_AVAILABLE:
+        flash('Pipeline components not available. Make sure all modules are installed.', 'error')
+        return redirect(url_for('admin'))
+    
+    if pipeline_status['running']:
+        flash('Pipeline is already running!', 'warning')
+        return redirect(url_for('admin'))
+    
+    # Get form data
+    urls_text = request.form.get('urls', '').strip()
+    use_selenium = 'use_selenium' in request.form
+    model = request.form.get('model', 'claude-3-5-sonnet-20241022')
+    
+    # Parse URLs
+    urls = []
+    if urls_text:
+        urls = [url.strip() for url in urls_text.split('\n') if url.strip()]
+    
+    # Start pipeline in background thread
+    thread = threading.Thread(
+        target=pipeline_runner.run_pipeline,
+        args=(urls, use_selenium, model)
+    )
+    thread.daemon = True
+    thread.start()
+    
+    flash('Pipeline started successfully!', 'success')
+    return redirect(url_for('admin'))
+
+@app.route('/admin/status')
+def admin_status():
+    """Get current pipeline status (for AJAX updates)"""
+    return jsonify(pipeline_status)
+
+@app.route('/admin/stop_pipeline', methods=['POST'])
+def stop_pipeline():
+    """Stop the pipeline (note: this is a soft stop)"""
+    global pipeline_status
+    if pipeline_status['running']:
+        pipeline_status['running'] = False
+        pipeline_status['phase'] = 'stopped'
+        flash('Pipeline stop requested. It may take a moment to fully stop.', 'info')
+    else:
+        flash('No pipeline is currently running.', 'info')
+    
+    return redirect(url_for('admin'))
+
+@app.route('/admin/clear_logs', methods=['POST'])
+def clear_logs():
+    """Clear pipeline logs"""
+    global pipeline_status
+    pipeline_status['logs'] = []
+    flash('Logs cleared successfully.', 'success')
+    return redirect(url_for('admin'))
     """View individual summary details"""
     summaries = data_loader.load_all_summaries()
     

@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Investment News Pipeline</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .status-card {
+            transition: all 0.3s ease;
+        }
+        
+        .status-running {
+            border-left: 4px solid #28a745;
+            background: #f8fff9;
+        }
+        
+        .status-error {
+            border-left: 4px solid #dc3545;
+            background: #fff8f8;
+        }
+        
+        .status-idle {
+            border-left: 4px solid #6c757d;
+            background: #f8f9fa;
+        }
+        
+        .log-container {
+            max-height: 400px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+        }
+        
+        .log-entry {
+            margin-bottom: 0.5rem;
+            padding: 0.25rem;
+            border-radius: 4px;
+        }
+        
+        .log-entry:nth-child(even) {
+            background: rgba(0,0,0,0.05);
+        }
+        
+        .progress-container {
+            position: relative;
+        }
+        
+        .progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-weight: bold;
+            color: #000;
+            z-index: 10;
+        }
+        
+        .url-input {
+            min-height: 120px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .preset-urls {
+            background: #e9ecef;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .preset-url {
+            display: block;
+            color: #495057;
+            text-decoration: none;
+            padding: 0.25rem 0;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+        
+        .preset-url:hover {
+            color: #007bff;
+            text-decoration: underline;
+        }
+        
+        .flash-messages {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+            max-width: 400px;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for category, message in messages %}
+            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a href="/" class="navbar-brand">
+                <i class="fas fa-chart-line me-2"></i>
+                Investment News Pipeline
+            </a>
+            <div class="d-flex gap-2">
+                <a href="/" class="btn btn-outline-light btn-sm">
+                    <i class="fas fa-dashboard me-1"></i>
+                    Dashboard
+                </a>
+                <span class="navbar-text">
+                    <i class="fas fa-cogs me-1"></i>
+                    Admin
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- Pipeline Status -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card status-card {{ 'status-running' if pipeline_status.running else ('status-error' if pipeline_status.phase == 'error' else 'status-idle') }}">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-{{ 'play' if pipeline_status.running else ('exclamation-triangle' if pipeline_status.phase == 'error' else 'stop') }} me-2"></i>
+                            Pipeline Status
+                        </h5>
+                        <div class="d-flex gap-2">
+                            {% if pipeline_status.running %}
+                            <form method="POST" action="/admin/stop_pipeline" style="display: inline;">
+                                <button type="submit" class="btn btn-danger btn-sm">
+                                    <i class="fas fa-stop me-1"></i>
+                                    Stop Pipeline
+                                </button>
+                            </form>
+                            {% endif %}
+                            <button class="btn btn-outline-secondary btn-sm" onclick="refreshStatus()">
+                                <i class="fas fa-sync-alt me-1"></i>
+                                Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <strong>Status:</strong> 
+                                <span class="badge bg-{{ 'success' if pipeline_status.running else ('danger' if pipeline_status.phase == 'error' else 'secondary') }}">
+                                    {{ 'Running' if pipeline_status.running else ('Error' if pipeline_status.phase == 'error' else 'Idle') }}
+                                </span>
+                                <br>
+                                
+                                {% if pipeline_status.phase %}
+                                <strong>Current Phase:</strong> {{ pipeline_status.phase|title }}<br>
+                                {% endif %}
+                                
+                                {% if pipeline_status.last_run %}
+                                <strong>Last Run:</strong> {{ pipeline_status.last_run }}<br>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                {% if pipeline_status.running %}
+                                <div class="progress-container">
+                                    <div class="progress mb-2">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                             style="width: {{ pipeline_status.progress }}%"></div>
+                                    </div>
+                                    <div class="progress-text">{{ pipeline_status.progress }}%</div>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Pipeline Control -->
+            <div class="col-md-6">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-rocket me-2"></i>
+                            Run Pipeline
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        {% if not pipeline_available %}
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            Pipeline components not available. Make sure all modules are installed.
+                        </div>
+                        {% endif %}
+                        
+                        <form method="POST" action="/admin/run_pipeline">
+                            <!-- URLs Input -->
+                            <div class="mb-3">
+                                <label for="urls" class="form-label">
+                                    <i class="fas fa-link me-1"></i>
+                                    URLs to Scrape (one per line)
+                                </label>
+                                <textarea class="form-control url-input" id="urls" name="urls" 
+                                         placeholder="Leave empty to use default financial news URLs&#10;Or enter custom URLs like:&#10;https://www.marketwatch.com/investing&#10;https://finance.yahoo.com/news&#10;https://www.cnbc.com/investing/"></textarea>
+                                <div class="form-text">Leave empty to use default financial news sources</div>
+                            </div>
+
+                            <!-- Preset URLs -->
+                            <div class="preset-urls">
+                                <strong>Quick Add Preset URLs:</strong>
+                                <div class="row mt-2">
+                                    <div class="col-6">
+                                        <a class="preset-url" onclick="addUrl('https://www.marketwatch.com/investing')">
+                                            <i class="fas fa-plus me-1"></i>MarketWatch Investing
+                                        </a>
+                                        <a class="preset-url" onclick="addUrl('https://finance.yahoo.com/news')">
+                                            <i class="fas fa-plus me-1"></i>Yahoo Finance News
+                                        </a>
+                                        <a class="preset-url" onclick="addUrl('https://www.cnbc.com/investing/')">
+                                            <i class="fas fa-plus me-1"></i>CNBC Investing
+                                        </a>
+                                    </div>
+                                    <div class="col-6">
+                                        <a class="preset-url" onclick="addUrl('https://www.reuters.com/business/finance/')">
+                                            <i class="fas fa-plus me-1"></i>Reuters Finance
+                                        </a>
+                                        <a class="preset-url" onclick="addUrl('https://www.bloomberg.com/markets')">
+                                            <i class="fas fa-plus me-1"></i>Bloomberg Markets
+                                        </a>
+                                        <a class="preset-url" onclick="clearUrls()">
+                                            <i class="fas fa-trash me-1"></i>Clear All URLs
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Options -->
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="use_selenium" name="use_selenium">
+                                        <label class="form-check-label" for="use_selenium">
+                                            Use Selenium (for JavaScript-heavy sites)
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="model" class="form-label">Claude Model</label>
+                                    <select class="form-select" id="model" name="model">
+                                        <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet (Recommended)</option>
+                                        <option value="claude-3-opus-20240229">Claude 3 Opus (Best Quality)</option>
+                                        <option value="claude-3-haiku-20240307">Claude 3 Haiku (Fastest)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Submit Button -->
+                            <button type="submit" class="btn btn-primary" 
+                                    {{ 'disabled' if pipeline_status.running or not pipeline_available }}>
+                                <i class="fas fa-play me-1"></i>
+                                {{ 'Pipeline Running...' if pipeline_status.running else 'Start Pipeline' }}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logs -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-list me-2"></i>
+                            Pipeline Logs
+                        </h5>
+                        <form method="POST" action="/admin/clear_logs" style="display: inline;">
+                            <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                <i class="fas fa-trash me-1"></i>
+                                Clear Logs
+                            </button>
+                        </form>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="log-container" id="logContainer">
+                            {% if pipeline_status.logs %}
+                                {% for log in pipeline_status.logs %}
+                                <div class="log-entry">
+                                    <span class="text-muted">[{{ log.timestamp }}]</span> {{ log.message }}
+                                </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="text-muted text-center py-3">
+                                    No logs available. Run the pipeline to see logs here.
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Auto-refresh status every 5 seconds when pipeline is running
+        let statusInterval;
+        
+        function refreshStatus() {
+            fetch('/admin/status')
+                .then(response => response.json())
+                .then(data => {
+                    // Update status display
+                    updateStatusDisplay(data);
+                    
+                    // Setup auto-refresh if pipeline is running
+                    if (data.running && !statusInterval) {
+                        statusInterval = setInterval(refreshStatus, 5000);
+                    } else if (!data.running && statusInterval) {
+                        clearInterval(statusInterval);
+                        statusInterval = null;
+                    }
+                })
+                .catch(error => console.error('Error fetching status:', error));
+        }
+        
+        function updateStatusDisplay(status) {
+            // Update progress bar
+            const progressBar = document.querySelector('.progress-bar');
+            const progressText = document.querySelector('.progress-text');
+            
+            if (progressBar && status.running) {
+                progressBar.style.width = status.progress + '%';
+                if (progressText) {
+                    progressText.textContent = status.progress + '%';
+                }
+            }
+            
+            // Update logs
+            const logContainer = document.getElementById('logContainer');
+            if (logContainer && status.logs) {
+                logContainer.innerHTML = '';
+                status.logs.forEach(log => {
+                    const logEntry = document.createElement('div');
+                    logEntry.className = 'log-entry';
+                    logEntry.innerHTML = `<span class="text-muted">[${log.timestamp}]</span> ${log.message}`;
+                    logContainer.appendChild(logEntry);
+                });
+                
+                // Auto-scroll to bottom
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+            
+            // Update page if status changed significantly
+            if (status.phase === 'completed' || status.phase === 'error') {
+                setTimeout(() => {
+                    location.reload();
+                }, 2000);
+            }
+        }
+        
+        function addUrl(url) {
+            const urlsTextarea = document.getElementById('urls');
+            const currentUrls = urlsTextarea.value.trim();
+            
+            if (currentUrls && !currentUrls.endsWith('\n')) {
+                urlsTextarea.value = currentUrls + '\n' + url;
+            } else {
+                urlsTextarea.value = currentUrls + url;
+            }
+        }
+        
+        function clearUrls() {
+            document.getElementById('urls').value = '';
+        }
+        
+        // Start auto-refresh if pipeline is running
+        {% if pipeline_status.running %}
+        refreshStatus();
+        {% endif %}
+        
+        // Auto-dismiss flash messages
+        setTimeout(() => {
+            const alerts = document.querySelectorAll('.alert');
+            alerts.forEach(alert => {
+                if (alert.querySelector('.btn-close')) {
+                    alert.querySelector('.btn-close').click();
+                }
+            });
+        }, 5000);
+    </script>
+</body>
+</html>
