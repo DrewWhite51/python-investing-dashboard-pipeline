@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 AI summarizer for cleaned news articles.
-Sends articles to OpenAI GPT API for investment-focused summarization.
+Sends articles to Anthropic Claude API for investment-focused summarization.
 """
 
 import os
@@ -9,23 +9,22 @@ import glob
 import json
 from datetime import datetime
 from pathlib import Path
-import openai
-from openai import OpenAI
+import anthropic
 import time
 
 class AISummarizer:
-    def __init__(self, api_key=None, input_dir="cleaned_text", output_dir="summaries", model="gpt-3.5-turbo"):
+    def __init__(self, api_key=None, input_dir="cleaned_text", output_dir="summaries", model="claude-3-5-sonnet-20241022"):
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.model = model
         
-        # Initialize OpenAI client
-        self.client = OpenAI(
-            api_key=api_key or os.getenv('OPENAI_API_KEY')
+        # Initialize Anthropic client
+        self.client = anthropic.Anthropic(
+            api_key=api_key or os.getenv('ANTHROPIC_API_KEY')
         )
         
         if not self.client.api_key:
-            raise ValueError("OpenAI API key not provided. Set OPENAI_API_KEY environment variable or pass api_key parameter.")
+            raise ValueError("Anthropic API key not provided. Set ANTHROPIC_API_KEY environment variable or pass api_key parameter.")
         
         # Create output directory
         os.makedirs(output_dir, exist_ok=True)
@@ -67,8 +66,9 @@ class AISummarizer:
             print(f"Error reading {filepath}: {e}")
             return None
     
-    def truncate_text(self, text, max_tokens=3000):
-        """Truncate text to fit within token limits"""
+    def truncate_text(self, text, max_tokens=150000):
+        """Truncate text to fit within Claude's context limits"""
+        # Claude 3.5 Sonnet has ~200k token context window
         # Rough estimation: 1 token ≈ 4 characters
         max_chars = max_tokens * 4
         
@@ -85,26 +85,29 @@ class AISummarizer:
             return truncated + "..."
     
     def summarize_article(self, text_content):
-        """Send article to OpenAI for summarization"""
+        """Send article to Anthropic Claude for summarization"""
         try:
             # Truncate if necessary
-            truncated_content = self.truncate_text(text_content, max_tokens=3000)
+            truncated_content = self.truncate_text(text_content, max_tokens=150000)
             
-            # Create chat completion
-            response = self.client.chat.completions.create(
+            # Create message with Claude
+            response = self.client.messages.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": f"Please analyze this financial news article:\n\n{truncated_content}"}
-                ],
+                max_tokens=4000,
                 temperature=0.3,  # Lower temperature for more consistent outputs
-                max_tokens=1000
+                system=self.system_prompt,
+                messages=[
+                    {
+                        "role": "user", 
+                        "content": f"Please analyze this financial news article:\n\n{truncated_content}"
+                    }
+                ]
             )
             
-            return response.choices[0].message.content
+            return response.content[0].text
             
         except Exception as e:
-            print(f"Error calling OpenAI API: {e}")
+            print(f"Error calling Anthropic API: {e}")
             return None
     
     def process_text_file(self, text_filepath):
@@ -223,11 +226,11 @@ class AISummarizer:
 
 def main():
     """Example usage"""
-    # Make sure to set your OpenAI API key as an environment variable
-    # export OPENAI_API_KEY="your-api-key-here"
+    # Make sure to set your Anthropic API key as an environment variable
+    # export ANTHROPIC_API_KEY="your-api-key-here"
     
     try:
-        summarizer = AISummarizer(model="gpt-3.5-turbo")  # or "gpt-4" for better results
+        summarizer = AISummarizer(model="claude-3-5-sonnet-20241022")  # or "claude-3-opus-20240229" for best results
         
         # Process all text files
         summary_files = summarizer.batch_process_with_retry()
@@ -238,8 +241,8 @@ def main():
             
     except ValueError as e:
         print(f"Configuration error: {e}")
-        print("Please set your OpenAI API key:")
-        print("  export OPENAI_API_KEY='your-api-key-here'")
+        print("Please set your Anthropic API key:")
+        print("  export ANTHROPIC_API_KEY='your-api-key-here'")
     except Exception as e:
         print(f"Error: {e}")
 

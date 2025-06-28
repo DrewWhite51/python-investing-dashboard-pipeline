@@ -1,2 +1,5 @@
 __pycache__
 .env
+/cleaned_text
+/scraped_html
+/summaries

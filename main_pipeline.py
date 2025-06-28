@@ -7,16 +7,16 @@ import os
 import sys
 import argparse
 from datetime import datetime
-
+from dotenv import load_dotenv
 # Import our custom modules
 from web_scraper import NewsScraper
 from html_parser import HTMLParser  
 from ai_summarizer import AISummarizer
 
 class NewsPipeline:
-    def __init__(self, use_selenium=False, openai_api_key=None, model="gpt-3.5-turbo"):
+    def __init__(self, use_selenium=False, anthropic_api_key=None, model="claude-3-5-sonnet-20241022"):
         self.use_selenium = use_selenium
-        self.openai_api_key = openai_api_key
+        self.anthropic_api_key = anthropic_api_key
         self.model = model
         
         # Initialize components
@@ -46,7 +46,7 @@ class NewsPipeline:
         # Initialize summarizer
         try:
             self.summarizer = AISummarizer(
-                api_key=self.openai_api_key,
+                api_key=self.anthropic_api_key,
                 model=self.model
             )
         except ValueError as e:
@@ -93,7 +93,7 @@ class NewsPipeline:
         
         if not self.summarizer:
             print("AI summarizer not available. Skipping summarization phase.")
-            print("Please set OPENAI_API_KEY environment variable to enable AI summarization.")
+            print("Please set ANTHROPIC_API_KEY environment variable to enable AI summarization.")
             return []
         
         try:
@@ -164,8 +164,8 @@ def main():
     
     parser.add_argument('--urls', nargs='*', help='URLs to scrape (space-separated)')
     parser.add_argument('--selenium', action='store_true', help='Use Selenium for JavaScript-heavy sites')
-    parser.add_argument('--model', default='gpt-3.5-turbo', help='OpenAI model to use (default: gpt-3.5-turbo)')
-    parser.add_argument('--api-key', help='OpenAI API key (can also use OPENAI_API_KEY env var)')
+    parser.add_argument('--model', default='claude-3-5-sonnet-20241022', help='Claude model to use (default: claude-3-5-sonnet-20241022)')
+    parser.add_argument('--api-key', help='Anthropic API key (can also use ANTHROPIC_API_KEY env var)')
     parser.add_argument('--scrape-only', action='store_true', help='Only run scraping phase')
     parser.add_argument('--parse-only', action='store_true', help='Only run parsing phase')
     parser.add_argument('--summarize-only', action='store_true', help='Only run summarization phase')
@@ -175,7 +175,7 @@ def main():
     # Initialize pipeline
     pipeline = NewsPipeline(
         use_selenium=args.selenium,
-        openai_api_key=args.api_key,
+        anthropic_api_key=args.api_key or os.getenv('ANTHROPIC_API_KEY'),
         model=args.model
     )
     
