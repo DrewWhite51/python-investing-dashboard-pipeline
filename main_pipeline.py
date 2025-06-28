@@ -26,11 +26,12 @@ class NewsPipeline:
         
         # Default URLs for financial news
         self.default_urls = [
-            "https://www.marketwatch.com/investing",
-            "https://finance.yahoo.com/news",
-            "https://www.cnbc.com/investing/",
-            "https://www.reuters.com/business/finance/",
-            "https://www.bloomberg.com/markets"
+            # "https://www.marketwatch.com/investing",
+            # "https://finance.yahoo.com/news",
+            # "https://www.cnbc.com/investing/",
+            # "https://www.reuters.com/business/finance/",
+            # "https://www.bloomberg.com/markets"
+            "https://www.coindesk.com/markets/2025/06/27/market-wrap-crypto-markets-shrug-off-new-trump-tariff-threat-as-july-deadline-looms"
         ]
     
     def initialize_components(self):

@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Summary Details - Investment News Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .detail-section {
+            margin-bottom: 2rem;
+        }
+        
+        .metric-tag {
+            display: inline-block;
+            background: #e9ecef;
+            color: #495057;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            margin: 2px;
+        }
+        
+        .company-tag {
+            display: inline-block;
+            background: #007bff;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            margin: 2px;
+        }
+        
+        .sector-tag {
+            display: inline-block;
+            background: #28a745;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            margin: 2px;
+        }
+        
+        .risk-item, .opportunity-item {
+            background: #f8f9fa;
+            border-left: 4px solid #dc3545;
+            padding: 0.5rem;
+            margin-bottom: 0.5rem;
+            border-radius: 0 4px 4px 0;
+        }
+        
+        .opportunity-item {
+            border-left-color: #28a745;
+        }
+        
+        .confidence-circle {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin: 0 auto;
+        }
+        
+        .raw-response {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 1rem;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a href="/" class="navbar-brand">
+                <i class="fas fa-arrow-left me-2"></i>
+                Back to Dashboard
+            </a>
+            <span class="navbar-text">
+                Summary Details
+            </span>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        {% set parsed = summary.parsed_summary %}
+        
+        <!-- Header Section -->
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <h2 class="mb-3">Investment Summary Analysis</h2>
+                <div class="d-flex gap-2 mb-3">
+                    <span class="badge bg-{{ parsed.sentiment|sentiment_color }} fs-6">
+                        <i class="fas fa-chart-line me-1"></i>
+                        {{ parsed.sentiment|title if parsed.sentiment else 'Unknown Sentiment' }}
+                    </span>
+                    {% if parsed.time_horizon %}
+                    <span class="badge bg-secondary fs-6">
+                        <i class="fas fa-clock me-1"></i>
+                        {{ parsed.time_horizon|title }}
+                    </span>
+                    {% endif %}
+                </div>
+                <p class="text-muted">
+                    <i class="fas fa-file me-1"></i>
+                    {{ summary.filename }}
+                    {% if summary.processed_datetime %}
+                    • <i class="fas fa-calendar me-1"></i>
+                    {{ summary.processed_datetime.strftime('%Y-%m-%d %H:%M') }}
+                    {% endif %}
+                </p>
+            </div>
+            
+            {% if parsed.confidence_score %}
+            <div class="col-md-4 text-center">
+                <h6 class="text-muted mb-2">Confidence Score</h6>
+                <div class="confidence-circle bg-{{ parsed.confidence_score|confidence_color }} text-white">
+                    {{ (parsed.confidence_score * 100)|round|int }}%
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Main Summary -->
+        {% if parsed.summary %}
+        <div class="detail-section">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-newspaper text-primary me-2"></i>
+                        Executive Summary
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p class="lead">{{ parsed.summary }}</p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Investment Implications -->
+        {% if parsed.investment_implications %}
+        <div class="detail-section">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-chart-up text-success me-2"></i>
+                        Investment Implications
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p>{{ parsed.investment_implications }}</p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Companies and Sectors -->
+        <div class="row mb-4">
+            {% if parsed.companies_mentioned %}
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-building text-primary me-2"></i>
+                            Companies Mentioned
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        {% for company in parsed.companies_mentioned %}
+                        <span class="company-tag">{{ company }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if parsed.sectors_affected %}
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-industry text-success me-2"></i>
+                            Sectors Affected
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        {% for sector in parsed.sectors_affected %}
+                        <span class="sector-tag">{{ sector }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Key Metrics -->
+        {% if parsed.key_metrics %}
+        <div class="detail-section">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-calculator text-info me-2"></i>
+                        Key Metrics
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% for metric in parsed.key_metrics %}
+                    <span class="metric-tag">{{ metric }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Risks and Opportunities -->
+        <div class="row mb-4">
+            {% if parsed.risk_factors %}
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-exclamation-triangle text-danger me-2"></i>
+                            Risk Factors
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        {% for risk in parsed.risk_factors %}
+                        <div class="risk-item">
+                            <i class="fas fa-exclamation-circle text-danger me-2"></i>
+                            {{ risk }}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if parsed.opportunities %}
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-lightbulb text-success me-2"></i>
+                            Opportunities
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        {% for opportunity in parsed.opportunities %}
+                        <div class="opportunity-item">
+                            <i class="fas fa-star text-success me-2"></i>
+                            {{ opportunity }}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Technical Details -->
+        <div class="detail-section">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-cog text-secondary me-2"></i>
+                        Technical Details
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Model Used:</strong> {{ summary.model_used or 'Unknown' }}<br>
+                            <strong>Source File:</strong> {{ summary.source_file|basename if summary.source_file else 'Unknown' }}<br>
+                            {% if summary.processed_datetime %}
+                            <strong>Processed:</strong> {{ summary.processed_datetime.strftime('%Y-%m-%d %H:%M:%S') }}<br>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            {% if parsed.confidence_score %}
+                            <strong>Confidence:</strong> {{ (parsed.confidence_score * 100)|round(1) }}%<br>
+                            {% endif %}
+                            {% if parsed.sentiment %}
+                            <strong>Sentiment:</strong> 
+                            <span class="badge bg-{{ parsed.sentiment|sentiment_color }}">{{ parsed.sentiment|title }}</span><br>
+                            {% endif %}
+                            {% if parsed.time_horizon %}
+                            <strong>Time Horizon:</strong> {{ parsed.time_horizon|title }}<br>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Raw Response (Collapsible) -->
+        {% if summary.raw_response %}
+        <div class="detail-section">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <button class="btn btn-link text-decoration-none p-0" type="button" data-bs-toggle="collapse" data-bs-target="#rawResponse">
+                            <i class="fas fa-code text-secondary me-2"></i>
+                            Raw AI Response
+                            <i class="fas fa-chevron-down ms-2"></i>
+                        </button>
+                    </h5>
+                </div>
+                <div id="rawResponse" class="collapse">
+                    <div class="card-body">
+                        <div class="raw-response">{{ summary.raw_response }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Action Buttons -->
+        <div class="detail-section text-center">
+            <a href="/" class="btn btn-primary">
+                <i class="fas fa-arrow-left me-1"></i>
+                Back to Dashboard
+            </a>
+            <button class="btn btn-outline-secondary" onclick="window.print()">
+                <i class="fas fa-print me-1"></i>
+                Print Summary
+            </button>
+            <button class="btn btn-outline-info" onclick="copyToClipboard()">
+                <i class="fas fa-copy me-1"></i>
+                Copy Summary
+            </button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function copyToClipboard() {
+            const summaryText = `
+Investment Summary: {{ parsed.summary or 'No summary' }}
+
+Investment Implications: {{ parsed.investment_implications or 'None specified' }}
+
+Companies: {{ (parsed.companies_mentioned or [])|join(', ') }}
+Sectors: {{ (parsed.sectors_affected or [])|join(', ') }}
+Sentiment: {{ parsed.sentiment or 'Unknown' }}
+Confidence: {{ (parsed.confidence_score * 100)|round|int if parsed.confidence_score else 'N/A' }}%
+
+Risk Factors:
+{% for risk in (parsed.risk_factors or []) -%}
+- {{ risk }}
+{% endfor %}
+
+Opportunities:
+{% for opp in (parsed.opportunities or []) -%}
+- {{ opp }}
+{% endfor %}
+            `.trim();
+            
+            navigator.clipboard.writeText(summaryText).then(() => {
+                // Show success feedback
+                const btn = event.target.closest('button');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-check me-1"></i>Copied!';
+                btn.classList.remove('btn-outline-info');
+                btn.classList.add('btn-success');
+                
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.classList.remove('btn-success');
+                    btn.classList.add('btn-outline-info');
+                }, 2000);
+            });
+        }
+    </script>
+</body>
+</html>
