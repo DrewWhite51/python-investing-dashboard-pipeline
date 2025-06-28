@@ -18,6 +18,8 @@ try:
     from web_scraper import NewsScraper
     from html_parser import HTMLParser  
     from ai_summarizer import AISummarizer
+    from collect_urls import URLCollector
+    from news_sources import NewsSourcesManager
     PIPELINE_AVAILABLE = True
 except ImportError:
     PIPELINE_AVAILABLE = False
@@ -109,9 +111,6 @@ class PipelineRunner:
             self.update_status('error', 0, f'Pipeline failed: {str(e)}')
         finally:
             pipeline_status['running'] = False
-
-# Initialize pipeline runner
-pipeline_runner = PipelineRunner()
 
 class SummaryDataLoader:
     def __init__(self, summaries_dir="summaries"):
@@ -205,8 +204,12 @@ class SummaryDataLoader:
             'top_companies': list(companies)[:10]
         }
 
-# Initialize data loader
+# Initialize components
+pipeline_runner = PipelineRunner()
+news_sources_manager = NewsSourcesManager()
 data_loader = SummaryDataLoader()
+
+# ===== MAIN ROUTES =====
 
 @app.route('/')
 def index():
@@ -217,6 +220,25 @@ def index():
     return render_template('dashboard.html', 
                          summaries=summaries, 
                          stats=stats)
+
+@app.route('/summary/<filename>')
+def view_summary(filename):
+    """View individual summary details"""
+    summaries = data_loader.load_all_summaries()
+    
+    # Find the specific summary
+    summary = None
+    for s in summaries:
+        if s['filename'] == filename:
+            summary = s
+            break
+    
+    if not summary:
+        return "Summary not found", 404
+    
+    return render_template('summary_detail.html', summary=summary)
+
+# ===== API ROUTES =====
 
 @app.route('/api/summaries')
 def api_summaries():
@@ -231,12 +253,21 @@ def api_stats():
     stats = data_loader.get_summary_stats(summaries)
     return jsonify(stats)
 
+# ===== ADMIN ROUTES =====
+
 @app.route('/admin')
 def admin():
     """Admin dashboard page"""
     return render_template('admin.html', 
                          pipeline_status=pipeline_status,
                          pipeline_available=PIPELINE_AVAILABLE)
+
+@app.route('/admin/status')
+def admin_status():
+    """Get current pipeline status (for AJAX updates)"""
+    return jsonify(pipeline_status)
+
+# ===== PIPELINE CONTROL ROUTES =====
 
 @app.route('/admin/run_pipeline', methods=['POST'])
 def run_pipeline():
@@ -270,10 +301,36 @@ def run_pipeline():
     flash('Pipeline started successfully!', 'success')
     return redirect(url_for('admin'))
 
-@app.route('/admin/status')
-def admin_status():
-    """Get current pipeline status (for AJAX updates)"""
-    return jsonify(pipeline_status)
+@app.route('/admin/run_pipeline_with_collected', methods=['POST'])
+def run_pipeline_with_collected():
+    """Run pipeline with collected URLs"""
+    if not PIPELINE_AVAILABLE:
+        flash('Pipeline components not available.', 'error')
+        return redirect(url_for('admin'))
+    
+    if pipeline_status['running']:
+        flash('Pipeline is already running!', 'warning')
+        return redirect(url_for('admin'))
+    
+    collected_urls = session.get('collected_urls', [])
+    if not collected_urls:
+        flash('No collected URLs found. Please collect URLs first.', 'warning')
+        return redirect(url_for('admin'))
+    
+    # Get form data
+    use_selenium = 'use_selenium' in request.form
+    model = request.form.get('model', 'claude-3-5-sonnet-20241022')
+    
+    # Start pipeline with collected URLs
+    thread = threading.Thread(
+        target=pipeline_runner.run_pipeline,
+        args=(collected_urls, use_selenium, model)
+    )
+    thread.daemon = True
+    thread.start()
+    
+    flash(f'Pipeline started with {len(collected_urls)} collected URLs!', 'success')
+    return redirect(url_for('admin'))
 
 @app.route('/admin/stop_pipeline', methods=['POST'])
 def stop_pipeline():
@@ -295,20 +352,138 @@ def clear_logs():
     pipeline_status['logs'] = []
     flash('Logs cleared successfully.', 'success')
     return redirect(url_for('admin'))
-    """View individual summary details"""
-    summaries = data_loader.load_all_summaries()
+
+# ===== NEWS SOURCES MANAGEMENT ROUTES =====
+
+@app.route('/admin/sources')
+def manage_sources():
+    """News sources management page"""
+    sources = news_sources_manager.get_all_sources()
+    categories = news_sources_manager.get_categories()
+    return render_template('sources.html', 
+                         sources=sources, 
+                         categories=categories)
+
+@app.route('/admin/sources/add', methods=['POST'])
+def add_source():
+    """Add a new news source"""
+    name = request.form.get('name', '').strip()
+    url = request.form.get('url', '').strip()
+    category = request.form.get('category', '').strip()
+    new_category = request.form.get('new_category', '').strip()
+    description = request.form.get('description', '').strip()
+    active = 'active' in request.form
     
-    # Find the specific summary
-    summary = None
-    for s in summaries:
-        if s['filename'] == filename:
-            summary = s
-            break
+    # Use new category if provided
+    if new_category:
+        category = new_category
     
-    if not summary:
-        return "Summary not found", 404
+    if not name or not url:
+        flash('Name and URL are required.', 'error')
+        return redirect(url_for('manage_sources'))
     
-    return render_template('summary_detail.html', summary=summary)
+    if news_sources_manager.add_source(name, url, category, description, active):
+        flash(f'News source "{name}" added successfully.', 'success')
+    else:
+        flash('Failed to add news source.', 'error')
+    
+    return redirect(url_for('manage_sources'))
+
+@app.route('/admin/sources/update/<int:source_id>', methods=['POST'])
+def update_source(source_id):
+    """Update an existing news source"""
+    name = request.form.get('name', '').strip()
+    url = request.form.get('url', '').strip()
+    category = request.form.get('category', '').strip()
+    description = request.form.get('description', '').strip()
+    active = 'active' in request.form
+    
+    if not name or not url:
+        flash('Name and URL are required.', 'error')
+        return redirect(url_for('manage_sources'))
+    
+    if news_sources_manager.update_source(source_id, 
+                                        name=name, 
+                                        url=url, 
+                                        category=category, 
+                                        description=description, 
+                                        active=active):
+        flash(f'News source updated successfully.', 'success')
+    else:
+        flash('Failed to update news source.', 'error')
+    
+    return redirect(url_for('manage_sources'))
+
+@app.route('/admin/sources/delete/<int:source_id>', methods=['POST'])
+def delete_source(source_id):
+    """Delete a news source"""
+    source = news_sources_manager.get_source_by_id(source_id)
+    if source:
+        if news_sources_manager.delete_source(source_id):
+            flash(f'News source "{source["name"]}" deleted successfully.', 'success')
+        else:
+            flash('Failed to delete news source.', 'error')
+    else:
+        flash('News source not found.', 'error')
+    
+    return redirect(url_for('manage_sources'))
+
+# ===== URL COLLECTION ROUTES =====
+
+@app.route('/admin/collect_urls', methods=['POST'])
+def collect_urls():
+    """Collect URLs from news sources"""
+    if not PIPELINE_AVAILABLE:
+        flash('URL collection components not available.', 'error')
+        return redirect(url_for('admin'))
+    
+    use_selenium = 'use_selenium' in request.form
+    
+    # Get active source URLs
+    active_urls = news_sources_manager.get_active_urls()
+    
+    if not active_urls:
+        flash('No active news sources found. Please add and activate some sources first.', 'warning')
+        return redirect(url_for('manage_sources'))
+    
+    try:
+        # Initialize URL collector
+        collector = URLCollector(use_selenium=use_selenium)
+        
+        # Collect URLs
+        collection_results = collector.collect_urls_from_multiple_pages(active_urls)
+        
+        # Update collection statistics
+        for base_url, result in collection_results['results'].items():
+            if result['success']:
+                news_sources_manager.update_collection_stats(base_url, result['count'])
+        
+        # Get flat list of URLs for session storage
+        article_urls = collector.get_flat_url_list()
+        session['collected_urls'] = article_urls
+        session['collection_timestamp'] = datetime.now().isoformat()
+        
+        collector.close()
+        
+        flash(f'URL collection completed! Found {len(article_urls)} article URLs from {len(active_urls)} sources.', 'success')
+        
+    except Exception as e:
+        flash(f'URL collection failed: {str(e)}', 'error')
+    
+    return redirect(url_for('admin'))
+
+@app.route('/admin/collected_urls')
+def view_collected_urls():
+    """View collected URLs"""
+    collected_urls = session.get('collected_urls', [])
+    collection_timestamp = session.get('collection_timestamp')
+    
+    return render_template('collected_urls.html', 
+                         urls=collected_urls,
+                         collection_timestamp=collection_timestamp,
+                         total_count=len(collected_urls))
+
+# ===== TEMPLATE FILTERS =====
 
 @app.template_filter('basename')
 def basename_filter(path):
@@ -370,8 +545,10 @@ def confidence_color_filter(confidence):
     except:
         return 'secondary'
 
+# ===== MAIN EXECUTION =====
+
 if __name__ == '__main__':
-    # Create templates directory if it doesn't exist
+    # Create necessary directories
     os.makedirs('templates', exist_ok=True)
     os.makedirs('static/css', exist_ok=True)
     os.makedirs('static/js', exist_ok=True)

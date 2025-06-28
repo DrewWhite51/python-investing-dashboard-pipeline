@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collected URLs - Investment News Pipeline</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .url-card {
+            transition: all 0.2s ease;
+            border-left: 4px solid #007bff;
+        }
+        
+        .url-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .url-text {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            word-break: break-all;
+        }
+        
+        .domain-badge {
+            font-size: 0.75rem;
+        }
+        
+        .stats-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .filter-controls {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .url-list {
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a href="/admin" class="navbar-brand">
+                <i class="fas fa-arrow-left me-2"></i>
+                Admin Dashboard
+            </a>
+            <div class="d-flex gap-2">
+                <span class="navbar-text">
+                    <i class="fas fa-link me-1"></i>
+                    Collected URLs
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- Header and Stats -->
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <h2>
+                    <i class="fas fa-link text-primary me-2"></i>
+                    Collected Article URLs
+                </h2>
+                {% if collection_timestamp %}
+                <p class="text-muted">
+                    <i class="fas fa-clock me-1"></i>
+                    Collected on: {{ collection_timestamp[:19]|replace('T', ' ') }}
+                </p>
+                {% endif %}
+            </div>
+            <div class="col-md-4">
+                <div class="card stats-card">
+                    <div class="card-body text-center">
+                        <h3 class="mb-0">{{ total_count }}</h3>
+                        <small>Total URLs Collected</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filter and Actions -->
+        <div class="filter-controls">
+            <div class="row">
+                <div class="col-md-3">
+                    <input type="text" class="form-control" id="domainFilter" placeholder="Filter by domain...">
+                </div>
+                <div class="col-md-3">
+                    <input type="text" class="form-control" id="urlFilter" placeholder="Search URLs...">
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" id="sortOrder">
+                        <option value="original">Original Order</option>
+                        <option value="domain">Sort by Domain</option>
+                        <option value="alphabetical">Sort Alphabetically</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="selectAll()">
+                            <i class="fas fa-check-square me-1"></i>
+                            Select All
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="clearSelection()">
+                            <i class="fas fa-square me-1"></i>
+                            Clear
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="row mt-2">
+                <div class="col-md-6">
+                    <small class="text-muted">
+                        <span id="visibleCount">{{ total_count }}</span> URLs visible
+                        • <span id="selectedCount">0</span> selected
+                    </small>
+                </div>
+                <div class="col-md-6 text-end">
+                    <button class="btn btn-primary btn-sm" onclick="runPipelineWithSelected()" id="runSelectedBtn" disabled>
+                        <i class="fas fa-play me-1"></i>
+                        Run Pipeline with Selected
+                    </button>
+                    <button class="btn btn-success btn-sm" onclick="exportSelected()">
+                        <i class="fas fa-download me-1"></i>
+                        Export Selected
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- URLs List -->
+        {% if urls %}
+        <div class="url-list" id="urlsList">
+            {% for url in urls %}
+            <div class="url-item mb-2" data-url="{{ url }}" data-domain="{{ url.split('//')[1].split('/')[0] if '//' in url }}">
+                <div class="card url-card">
+                    <div class="card-body py-2">
+                        <div class="row align-items-center">
+                            <div class="col-md-1">
+                                <div class="form-check">
+                                    <input class="form-check-input url-checkbox" type="checkbox" value="{{ url }}" 
+                                           id="url_{{ loop.index }}" onchange="updateSelectedCount()">
+                                </div>
+                            </div>
+                            <div class="col-md-8">
+                                <div class="url-text">{{ url }}</div>
+                            </div>
+                            <div class="col-md-2">
+                                {% set domain = url.split('//')[1].split('/')[0] if '//' in url else 'unknown' %}
+                                <span class="badge bg-secondary domain-badge">{{ domain }}</span>
+                            </div>
+                            <div class="col-md-1 text-end">
+                                <a href="{{ url }}" target="_blank" class="btn btn-outline-primary btn-sm">
+                                    <i class="fas fa-external-link-alt"></i>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <i class="fas fa-link fa-3x text-muted mb-3"></i>
+            <h3 class="text-muted">No URLs Collected</h3>
+            <p class="text-muted">Go to Admin Dashboard and collect URLs from your news sources.</p>
+            <a href="/admin" class="btn btn-primary">
+                <i class="fas fa-arrow-left me-1"></i>
+                Back to Admin
+            </a>
+        </div>
+        {% endif %}
+
+        <!-- Pipeline Runner Form (Hidden) -->
+        <form id="pipelineForm" method="POST" action="/admin/run_pipeline" style="display: none;">
+            <textarea name="urls" id="selectedUrlsInput"></textarea>
+            <input type="hidden" name="model" value="claude-3-5-sonnet-20241022">
+        </form>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let allUrls = {{ urls|tojson }};
+        let originalUrls = [...allUrls];
+        
+        function updateSelectedCount() {
+            const checkboxes = document.querySelectorAll('.url-checkbox:checked');
+            const count = checkboxes.length;
+            document.getElementById('selectedCount').textContent = count;
+            document.getElementById('runSelectedBtn').disabled = count === 0;
+        }
+        
+        function selectAll() {
+            const visibleCheckboxes = document.querySelectorAll('.url-item:not([style*="display: none"]) .url-checkbox');
+            visibleCheckboxes.forEach(cb => cb.checked = true);
+            updateSelectedCount();
+        }
+        
+        function clearSelection() {
+            const checkboxes = document.querySelectorAll('.url-checkbox');
+            checkboxes.forEach(cb => cb.checked = false);
+            updateSelectedCount();
+        }
+        
+        function filterUrls() {
+            const domainFilter = document.getElementById('domainFilter').value.toLowerCase();
+            const urlFilter = document.getElementById('urlFilter').value.toLowerCase();
+            const urlItems = document.querySelectorAll('.url-item');
+            
+            let visibleCount = 0;
+            
+            urlItems.forEach(item => {
+                const url = item.dataset.url.toLowerCase();
+                const domain = item.dataset.domain.toLowerCase();
+                
+                const matchesDomain = !domainFilter || domain.includes(domainFilter);
+                const matchesUrl = !urlFilter || url.includes(urlFilter);
+                
+                if (matchesDomain && matchesUrl) {
+                    item.style.display = 'block';
+                    visibleCount++;
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+            
+            document.getElementById('visibleCount').textContent = visibleCount;
+        }
+        
+        function sortUrls() {
+            const sortOrder = document.getElementById('sortOrder').value;
+            const urlsList = document.getElementById('urlsList');
+            const urlItems = Array.from(document.querySelectorAll('.url-item'));
+            
+            let sortedItems;
+            
+            switch(sortOrder) {
+                case 'domain':
+                    sortedItems = urlItems.sort((a, b) => 
+                        a.dataset.domain.localeCompare(b.dataset.domain)
+                    );
+                    break;
+                case 'alphabetical':
+                    sortedItems = urlItems.sort((a, b) => 
+                        a.dataset.url.localeCompare(b.dataset.url)
+                    );
+                    break;
+                default: // original
+                    // Sort by original index
+                    sortedItems = urlItems.sort((a, b) => {
+                        const aIndex = originalUrls.indexOf(a.dataset.url);
+                        const bIndex = originalUrls.indexOf(b.dataset.url);
+                        return aIndex - bIndex;
+                    });
+            }
+            
+            // Re-append sorted items
+            sortedItems.forEach(item => urlsList.appendChild(item));
+        }
+        
+        function runPipelineWithSelected() {
+            const selectedCheckboxes = document.querySelectorAll('.url-checkbox:checked');
+            if (selectedCheckboxes.length === 0) {
+                alert('Please select at least one URL');
+                return;
+            }
+            
+            const selectedUrls = Array.from(selectedCheckboxes).map(cb => cb.value);
+            
+            if (confirm(`Run pipeline with ${selectedUrls.length} selected URLs?`)) {
+                document.getElementById('selectedUrlsInput').value = selectedUrls.join('\n');
+                document.getElementById('pipelineForm').submit();
+            }
+        }
+        
+        function exportSelected() {
+            const selectedCheckboxes = document.querySelectorAll('.url-checkbox:checked');
+            if (selectedCheckboxes.length === 0) {
+                alert('Please select at least one URL');
+                return;
+            }
+            
+            const selectedUrls = Array.from(selectedCheckboxes).map(cb => cb.value);
+            const blob = new Blob([selectedUrls.join('\n')], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `collected_urls_${new Date().toISOString().slice(0,10)}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        }
+        
+        // Add event listeners
+        document.getElementById('domainFilter').addEventListener('input', filterUrls);
+        document.getElementById('urlFilter').addEventListener('input', filterUrls);
+        document.getElementById('sortOrder').addEventListener('change', sortUrls);
+        
+        // Initialize
+        updateSelectedCount();
+    </script>
+</body>
+</html>
