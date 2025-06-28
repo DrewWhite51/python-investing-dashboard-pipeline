@@ -1,0 +1,25 @@
+# Web scraping dependencies
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+selenium>=4.15.0
+lxml>=4.9.0
+
+# OpenAI API
+openai>=1.3.0
+
+# Utility libraries
+pathlib2>=2.3.7; python_version < '3.4'
+
+# Optional: For better HTML parsing
+html5lib>=1.1
+
+# Optional: For handling different encodings
+chardet>=5.2.0
+
+# Optional: For more robust date parsing
+python-dateutil>=2.8.2
+
+# Development dependencies (optional)
+# pytest>=7.4.0
+# black>=23.0.0
+# flake8>=6.0.0
