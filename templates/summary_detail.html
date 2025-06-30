@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 
+{% set parsed = summary.parsed_summary %}
+
 {% block title %}Summary Details - Investment News Dashboard{% endblock %}
 
 {% block extra_css %}
@@ -76,8 +78,6 @@
 {% endblock %}
 
 {% block content %}
-{% set parsed = summary.parsed_summary %}
-
 <!-- Header Section -->
 <div class="row mb-4">
     <div class="col-md-8">
