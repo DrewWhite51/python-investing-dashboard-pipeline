@@ -1,0 +1,173 @@
+<!-- Dynamic Navigation Component -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container-fluid">
+        <!-- Brand -->
+        <a class="navbar-brand" href="/">
+            <i class="fas fa-chart-line me-2"></i>
+            Investment News Pipeline
+        </a>
+
+        <!-- Mobile toggle -->
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <!-- Navigation items -->
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <!-- Dashboard -->
+                <li class="nav-item">
+                    <a class="nav-link {{ 'active' if request.endpoint == 'index' }}" href="/">
+                        <i class="fas fa-dashboard me-1"></i>
+                        Dashboard
+                    </a>
+                </li>
+                
+                <!-- Admin Dropdown -->
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle {{ 'active' if request.endpoint and request.endpoint.startswith('admin') }}" 
+                       href="#" role="button" data-bs-toggle="dropdown">
+                        <i class="fas fa-cogs me-1"></i>
+                        Admin
+                    </a>
+                    <ul class="dropdown-menu">
+                        <li>
+                            <a class="dropdown-item {{ 'active' if request.endpoint == 'admin' }}" href="/admin">
+                                <i class="fas fa-control me-2"></i>
+                                Pipeline Control
+                            </a>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <a class="dropdown-item {{ 'active' if request.endpoint == 'manage_sources' }}" href="/admin/sources">
+                                <i class="fas fa-rss me-2"></i>
+                                News Sources
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item {{ 'active' if request.endpoint == 'view_collected_urls' }}" href="/admin/collected_urls">
+                                <i class="fas fa-link me-2"></i>
+                                Collected URLs
+                                {% if session.latest_batch_id %}
+                                <span class="badge bg-success ms-1">New</span>
+                                {% endif %}
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item {{ 'active' if request.endpoint == 'database_admin' }}" href="/admin/database">
+                                <i class="fas fa-database me-2"></i>
+                                Database Admin
+                            </a>
+                        </li>
+                    </ul>
+                </li>
+            </ul>
+
+            <!-- Right side items -->
+            <ul class="navbar-nav">
+                <!-- Pipeline Status Indicator -->
+                {% if pipeline_status and pipeline_status.running %}
+                <li class="nav-item">
+                    <span class="navbar-text me-3">
+                        <span class="spinner-border spinner-border-sm text-success me-1"></span>
+                        Pipeline Running ({{ pipeline_status.progress }}%)
+                    </span>
+                </li>
+                {% endif %}
+
+                <!-- Statistics -->
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                        <i class="fas fa-chart-bar me-1"></i>
+                        Stats
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li class="dropdown-header">Quick Stats</li>
+                        <li>
+                            <span class="dropdown-item-text">
+                                <i class="fas fa-file-alt me-2"></i>
+                                {{ summaries_count or 0 }} Summaries
+                            </span>
+                        </li>
+                        <li>
+                            <span class="dropdown-item-text">
+                                <i class="fas fa-link me-2"></i>
+                                {{ collected_urls_count or 0 }} URLs Collected
+                            </span>
+                        </li>
+                        <li>
+                            <span class="dropdown-item-text">
+                                <i class="fas fa-rss me-2"></i>
+                                {{ active_sources_count or 0 }} Active Sources
+                            </span>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <a class="dropdown-item" href="/api/stats">
+                                <i class="fas fa-code me-2"></i>
+                                API Stats
+                            </a>
+                        </li>
+                    </ul>
+                </li>
+
+                <!-- Actions -->
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                        <i class="fas fa-bolt me-1"></i>
+                        Actions
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li class="dropdown-header">Quick Actions</li>
+                        <li>
+                            <a class="dropdown-item" href="#" onclick="collectUrls()">
+                                <i class="fas fa-search me-2"></i>
+                                Collect URLs
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="#" onclick="runPipeline()">
+                                <i class="fas fa-play me-2"></i>
+                                Run Pipeline
+                            </a>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <a class="dropdown-item" href="#" onclick="refreshPage()">
+                                <i class="fas fa-sync-alt me-2"></i>
+                                Refresh Data
+                            </a>
+                        </li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<!-- Hidden forms for quick actions -->
+<form id="collectUrlsForm" method="POST" action="/admin/collect_urls" style="display: none;">
+    <input type="hidden" name="use_selenium" value="0">
+</form>
+
+<form id="runPipelineForm" method="POST" action="/admin/run_pipeline_with_collected" style="display: none;">
+    <input type="hidden" name="model" value="claude-3-5-sonnet-20241022">
+</form>
+
+<script>
+function collectUrls() {
+    if (confirm('Collect URLs from all active news sources?')) {
+        document.getElementById('collectUrlsForm').submit();
+    }
+}
+
+function runPipeline() {
+    if (confirm('Run pipeline with collected URLs?')) {
+        document.getElementById('runPipelineForm').submit();
+    }
+}
+
+function refreshPage() {
+    location.reload();
+}
+</script>

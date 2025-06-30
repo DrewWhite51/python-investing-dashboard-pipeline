@@ -1,375 +1,351 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Investment News Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <style>
-        .summary-card {
-            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-            height: 100%;
-        }
+{% extends "base.html" %}
+
+{% block title %}Investment News Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+    .summary-card {
+        transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        height: 100%;
+    }
+    
+    .summary-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    
+    .confidence-badge {
+        position: absolute;
+        top: 15px;
+        right: 15px;
+    }
+    
+    .sentiment-badge {
+        position: absolute;
+        top: 15px;
+        left: 15px;
+    }
+    
+    .card-body {
+        position: relative;
+        padding-top: 50px;
+    }
+    
+    .metric-tag {
+        display: inline-block;
+        background: #e9ecef;
+        color: #495057;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 0.75rem;
+        margin: 1px;
+    }
+    
+    .company-tag {
+        display: inline-block;
+        background: #007bff;
+        color: white;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 0.75rem;
+        margin: 1px;
+    }
+    
+    .sector-tag {
+        display: inline-block;
+        background: #28a745;
+        color: white;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 0.75rem;
+        margin: 1px;
+    }
+    
+    .risk-item, .opportunity-item {
+        font-size: 0.85rem;
+        margin-bottom: 3px;
+    }
+    
+    .stats-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+    
+    .time-horizon-badge {
+        font-size: 0.7rem;
+    }
+    
+    .loading {
+        text-align: center;
+        padding: 50px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Statistics Row -->
+<div class="row mb-4">
+    <div class="col-md-3 mb-3">
+        <div class="card stats-card">
+            <div class="card-body text-center">
+                <h3 class="mb-0">{{ stats.total_summaries }}</h3>
+                <small>Total Summaries</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card bg-success text-white">
+            <div class="card-body text-center">
+                <h3 class="mb-0">{{ stats.sentiments.get('positive', 0) }}</h3>
+                <small>Positive Sentiment</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card bg-danger text-white">
+            <div class="card-body text-center">
+                <h3 class="mb-0">{{ stats.sentiments.get('negative', 0) }}</h3>
+                <small>Negative Sentiment</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card bg-info text-white">
+            <div class="card-body text-center">
+                <h3 class="mb-0">{{ stats.avg_confidence }}</h3>
+                <small>Avg Confidence</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filter Controls -->
+<div class="row mb-3">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <select class="form-select" id="sentimentFilter">
+                            <option value="">All Sentiments</option>
+                            <option value="positive">Positive</option>
+                            <option value="negative">Negative</option>
+                            <option value="neutral">Neutral</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select" id="timeHorizonFilter">
+                            <option value="">All Time Horizons</option>
+                            <option value="short-term">Short-term</option>
+                            <option value="medium-term">Medium-term</option>
+                            <option value="long-term">Long-term</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <input type="text" class="form-control" id="searchFilter" placeholder="Search companies, sectors...">
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-secondary" onclick="clearFilters()">Clear Filters</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="row" id="summaryCards">
+    {% for summary in summaries %}
+    <div class="col-lg-4 col-md-6 mb-4 summary-item" 
+         data-sentiment="{{ summary.parsed_summary.sentiment|lower if summary.parsed_summary.sentiment else 'unknown' }}"
+         data-time-horizon="{{ summary.parsed_summary.time_horizon|lower if summary.parsed_summary.time_horizon else 'unknown' }}"
+         data-companies="{{ (summary.parsed_summary.companies_mentioned or [])|join(' ')|lower }}"
+         data-sectors="{{ (summary.parsed_summary.sectors_affected or [])|join(' ')|lower }}">
         
-        .summary-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        }
-        
-        .confidence-badge {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-        }
-        
-        .sentiment-badge {
-            position: absolute;
-            top: 15px;
-            left: 15px;
-        }
-        
-        .card-body {
-            position: relative;
-            padding-top: 50px;
-        }
-        
-        .metric-tag {
-            display: inline-block;
-            background: #e9ecef;
-            color: #495057;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 0.75rem;
-            margin: 1px;
-        }
-        
-        .company-tag {
-            display: inline-block;
-            background: #007bff;
-            color: white;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 0.75rem;
-            margin: 1px;
-        }
-        
-        .sector-tag {
-            display: inline-block;
-            background: #28a745;
-            color: white;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 0.75rem;
-            margin: 1px;
-        }
-        
-        .risk-item, .opportunity-item {
-            font-size: 0.85rem;
-            margin-bottom: 3px;
-        }
-        
-        .stats-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-        
-        .time-horizon-badge {
-            font-size: 0.7rem;
-        }
-        
-        .loading {
-            text-align: center;
-            padding: 50px;
-        }
-    </style>
-</head>
-<body class="bg-light">
-    <nav class="navbar navbar-dark bg-dark">
-        <div class="container-fluid">
-            <span class="navbar-brand mb-0 h1">
-                <i class="fas fa-chart-line me-2"></i>
-                Investment News Dashboard
+        <div class="card summary-card h-100">
+            <!-- Badges -->
+            <span class="badge bg-{{ summary.parsed_summary.sentiment|sentiment_color }} sentiment-badge">
+                {{ summary.parsed_summary.sentiment|title if summary.parsed_summary.sentiment else 'Unknown' }}
             </span>
-            <div class="d-flex">
-                <a href="/admin" class="btn btn-outline-light btn-sm me-2">
-                    <i class="fas fa-cogs"></i> Admin
-                </a>
-                <button class="btn btn-outline-light btn-sm me-2" onclick="refreshData()">
-                    <i class="fas fa-sync-alt"></i> Refresh
-                </button>
-                <span class="navbar-text">
-                    {{ summaries|length }} Summaries
-                </span>
-            </div>
-        </div>
-    </nav>
-
-    <div class="container-fluid mt-4">
-        <!-- Statistics Row -->
-        <div class="row mb-4">
-            <div class="col-md-3 mb-3">
-                <div class="card stats-card">
-                    <div class="card-body text-center">
-                        <h3 class="mb-0">{{ stats.total_summaries }}</h3>
-                        <small>Total Summaries</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 mb-3">
-                <div class="card bg-success text-white">
-                    <div class="card-body text-center">
-                        <h3 class="mb-0">{{ stats.sentiments.get('positive', 0) }}</h3>
-                        <small>Positive Sentiment</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 mb-3">
-                <div class="card bg-danger text-white">
-                    <div class="card-body text-center">
-                        <h3 class="mb-0">{{ stats.sentiments.get('negative', 0) }}</h3>
-                        <small>Negative Sentiment</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 mb-3">
-                <div class="card bg-info text-white">
-                    <div class="card-body text-center">
-                        <h3 class="mb-0">{{ stats.avg_confidence }}</h3>
-                        <small>Avg Confidence</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Filter Controls -->
-        <div class="row mb-3">
-            <div class="col-md-12">
-                <div class="card">
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-3">
-                                <select class="form-select" id="sentimentFilter">
-                                    <option value="">All Sentiments</option>
-                                    <option value="positive">Positive</option>
-                                    <option value="negative">Negative</option>
-                                    <option value="neutral">Neutral</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <select class="form-select" id="timeHorizonFilter">
-                                    <option value="">All Time Horizons</option>
-                                    <option value="short-term">Short-term</option>
-                                    <option value="medium-term">Medium-term</option>
-                                    <option value="long-term">Long-term</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <input type="text" class="form-control" id="searchFilter" placeholder="Search companies, sectors...">
-                            </div>
-                            <div class="col-md-3">
-                                <button class="btn btn-secondary" onclick="clearFilters()">Clear Filters</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Summary Cards -->
-        <div class="row" id="summaryCards">
-            {% for summary in summaries %}
-            <div class="col-lg-4 col-md-6 mb-4 summary-item" 
-                 data-sentiment="{{ summary.parsed_summary.sentiment|lower if summary.parsed_summary.sentiment else 'unknown' }}"
-                 data-time-horizon="{{ summary.parsed_summary.time_horizon|lower if summary.parsed_summary.time_horizon else 'unknown' }}"
-                 data-companies="{{ (summary.parsed_summary.companies_mentioned or [])|join(' ')|lower }}"
-                 data-sectors="{{ (summary.parsed_summary.sectors_affected or [])|join(' ')|lower }}">
+            
+            {% if summary.parsed_summary.confidence_score %}
+            <span class="badge bg-{{ summary.parsed_summary.confidence_score|confidence_color }} confidence-badge">
+                {{ (summary.parsed_summary.confidence_score * 100)|round|int }}% Confidence
+            </span>
+            {% endif %}
+            
+            <div class="card-body">
+                <!-- Summary -->
+                <h6 class="card-title text-primary mb-3">
+                    <i class="fas fa-newspaper me-1"></i>
+                    Summary
+                </h6>
+                <p class="card-text">{{ summary.parsed_summary.summary or 'No summary available' }}</p>
                 
-                <div class="card summary-card h-100">
-                    <!-- Badges -->
-                    <span class="badge bg-{{ summary.parsed_summary.sentiment|sentiment_color }} sentiment-badge">
-                        {{ summary.parsed_summary.sentiment|title if summary.parsed_summary.sentiment else 'Unknown' }}
-                    </span>
-                    
-                    {% if summary.parsed_summary.confidence_score %}
-                    <span class="badge bg-{{ summary.parsed_summary.confidence_score|confidence_color }} confidence-badge">
-                        {{ (summary.parsed_summary.confidence_score * 100)|round|int }}% Confidence
-                    </span>
+                <!-- Investment Implications -->
+                {% if summary.parsed_summary.investment_implications %}
+                <h6 class="text-success mb-2">
+                    <i class="fas fa-chart-up me-1"></i>
+                    Investment Implications
+                </h6>
+                <p class="text-muted small mb-3">{{ summary.parsed_summary.investment_implications }}</p>
+                {% endif %}
+                
+                <!-- Companies -->
+                {% if summary.parsed_summary.companies_mentioned %}
+                <div class="mb-3">
+                    <h6 class="mb-1">
+                        <i class="fas fa-building me-1"></i>
+                        Companies
+                    </h6>
+                    {% for company in summary.parsed_summary.companies_mentioned %}
+                    <span class="company-tag">{{ company }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
+                <!-- Sectors -->
+                {% if summary.parsed_summary.sectors_affected %}
+                <div class="mb-3">
+                    <h6 class="mb-1">
+                        <i class="fas fa-industry me-1"></i>
+                        Sectors
+                    </h6>
+                    {% for sector in summary.parsed_summary.sectors_affected %}
+                    <span class="sector-tag">{{ sector }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
+                <!-- Key Metrics -->
+                {% if summary.parsed_summary.key_metrics %}
+                <div class="mb-3">
+                    <h6 class="mb-1">
+                        <i class="fas fa-calculator me-1"></i>
+                        Key Metrics
+                    </h6>
+                    {% for metric in summary.parsed_summary.key_metrics %}
+                    <span class="metric-tag">{{ metric }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                
+                <!-- Risks & Opportunities -->
+                <div class="row">
+                    {% if summary.parsed_summary.risk_factors %}
+                    <div class="col-6">
+                        <h6 class="text-danger mb-1">
+                            <i class="fas fa-exclamation-triangle me-1"></i>
+                            Risks
+                        </h6>
+                        {% for risk in summary.parsed_summary.risk_factors[:3] %}
+                        <div class="risk-item">• {{ risk }}</div>
+                        {% endfor %}
+                        {% if summary.parsed_summary.risk_factors|length > 3 %}
+                        <small class="text-muted">+{{ summary.parsed_summary.risk_factors|length - 3 }} more</small>
+                        {% endif %}
+                    </div>
                     {% endif %}
                     
-                    <div class="card-body">
-                        <!-- Summary -->
-                        <h6 class="card-title text-primary mb-3">
-                            <i class="fas fa-newspaper me-1"></i>
-                            Summary
+                    {% if summary.parsed_summary.opportunities %}
+                    <div class="col-6">
+                        <h6 class="text-success mb-1">
+                            <i class="fas fa-lightbulb me-1"></i>
+                            Opportunities
                         </h6>
-                        <p class="card-text">{{ summary.parsed_summary.summary or 'No summary available' }}</p>
-                        
-                        <!-- Investment Implications -->
-                        {% if summary.parsed_summary.investment_implications %}
-                        <h6 class="text-success mb-2">
-                            <i class="fas fa-chart-up me-1"></i>
-                            Investment Implications
-                        </h6>
-                        <p class="text-muted small mb-3">{{ summary.parsed_summary.investment_implications }}</p>
+                        {% for opportunity in summary.parsed_summary.opportunities[:3] %}
+                        <div class="opportunity-item">• {{ opportunity }}</div>
+                        {% endfor %}
+                        {% if summary.parsed_summary.opportunities|length > 3 %}
+                        <small class="text-muted">+{{ summary.parsed_summary.opportunities|length - 3 }} more</small>
                         {% endif %}
-                        
-                        <!-- Companies -->
-                        {% if summary.parsed_summary.companies_mentioned %}
-                        <div class="mb-3">
-                            <h6 class="mb-1">
-                                <i class="fas fa-building me-1"></i>
-                                Companies
-                            </h6>
-                            {% for company in summary.parsed_summary.companies_mentioned %}
-                            <span class="company-tag">{{ company }}</span>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
-                        
-                        <!-- Sectors -->
-                        {% if summary.parsed_summary.sectors_affected %}
-                        <div class="mb-3">
-                            <h6 class="mb-1">
-                                <i class="fas fa-industry me-1"></i>
-                                Sectors
-                            </h6>
-                            {% for sector in summary.parsed_summary.sectors_affected %}
-                            <span class="sector-tag">{{ sector }}</span>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
-                        
-                        <!-- Key Metrics -->
-                        {% if summary.parsed_summary.key_metrics %}
-                        <div class="mb-3">
-                            <h6 class="mb-1">
-                                <i class="fas fa-calculator me-1"></i>
-                                Key Metrics
-                            </h6>
-                            {% for metric in summary.parsed_summary.key_metrics %}
-                            <span class="metric-tag">{{ metric }}</span>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
-                        
-                        <!-- Risks & Opportunities -->
-                        <div class="row">
-                            {% if summary.parsed_summary.risk_factors %}
-                            <div class="col-6">
-                                <h6 class="text-danger mb-1">
-                                    <i class="fas fa-exclamation-triangle me-1"></i>
-                                    Risks
-                                </h6>
-                                {% for risk in summary.parsed_summary.risk_factors[:3] %}
-                                <div class="risk-item">• {{ risk }}</div>
-                                {% endfor %}
-                                {% if summary.parsed_summary.risk_factors|length > 3 %}
-                                <small class="text-muted">+{{ summary.parsed_summary.risk_factors|length - 3 }} more</small>
-                                {% endif %}
-                            </div>
-                            {% endif %}
-                            
-                            {% if summary.parsed_summary.opportunities %}
-                            <div class="col-6">
-                                <h6 class="text-success mb-1">
-                                    <i class="fas fa-lightbulb me-1"></i>
-                                    Opportunities
-                                </h6>
-                                {% for opportunity in summary.parsed_summary.opportunities[:3] %}
-                                <div class="opportunity-item">• {{ opportunity }}</div>
-                                {% endfor %}
-                                {% if summary.parsed_summary.opportunities|length > 3 %}
-                                <small class="text-muted">+{{ summary.parsed_summary.opportunities|length - 3 }} more</small>
-                                {% endif %}
-                            </div>
-                            {% endif %}
-                        </div>
                     </div>
-                    
-                    <!-- Card Footer -->
-                    <div class="card-footer bg-light">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <small class="text-muted">
-                                <i class="fas fa-clock me-1"></i>
-                                {{ summary.processed_datetime|timeago if summary.processed_datetime else 'Unknown time' }}
-                            </small>
-                            {% if summary.parsed_summary.time_horizon %}
-                            <span class="badge bg-secondary time-horizon-badge">
-                                {{ summary.parsed_summary.time_horizon|title }}
-                            </span>
-                            {% endif %}
-                        </div>
-                        <div class="mt-2">
-                            <a href="/summary/{{ summary.filename }}" class="btn btn-outline-primary btn-sm">
-                                <i class="fas fa-eye me-1"></i>
-                                View Details
-                            </a>
-                        </div>
-                    </div>
+                    {% endif %}
                 </div>
             </div>
-            {% endfor %}
+            
+            <!-- Card Footer -->
+            <div class="card-footer bg-light">
+                <div class="d-flex justify-content-between align-items-center">
+                    <small class="text-muted">
+                        <i class="fas fa-clock me-1"></i>
+                        {{ summary.processed_datetime|timeago if summary.processed_datetime else 'Unknown time' }}
+                    </small>
+                    {% if summary.parsed_summary.time_horizon %}
+                    <span class="badge bg-secondary time-horizon-badge">
+                        {{ summary.parsed_summary.time_horizon|title }}
+                    </span>
+                    {% endif %}
+                </div>
+                <div class="mt-2">
+                    <a href="/summary/{{ summary.filename }}" class="btn btn-outline-primary btn-sm">
+                        <i class="fas fa-eye me-1"></i>
+                        View Details
+                    </a>
+                </div>
+            </div>
         </div>
-        
-        {% if not summaries %}
-        <div class="text-center py-5">
-            <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
-            <h3 class="text-muted">No Summaries Found</h3>
-            <p class="text-muted">Run the pipeline to generate some investment summaries!</p>
-        </div>
-        {% endif %}
     </div>
+    {% endfor %}
+</div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        function refreshData() {
-            location.reload();
-        }
+{% if not summaries %}
+<div class="text-center py-5">
+    <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+    <h3 class="text-muted">No Summaries Found</h3>
+    <p class="text-muted">Run the pipeline to generate some investment summaries!</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function refreshData() {
+        location.reload();
+    }
+    
+    function clearFilters() {
+        document.getElementById('sentimentFilter').value = '';
+        document.getElementById('timeHorizonFilter').value = '';
+        document.getElementById('searchFilter').value = '';
+        filterSummaries();
+    }
+    
+    function filterSummaries() {
+        const sentimentFilter = document.getElementById('sentimentFilter').value.toLowerCase();
+        const timeHorizonFilter = document.getElementById('timeHorizonFilter').value.toLowerCase();
+        const searchFilter = document.getElementById('searchFilter').value.toLowerCase();
         
-        function clearFilters() {
-            document.getElementById('sentimentFilter').value = '';
-            document.getElementById('timeHorizonFilter').value = '';
-            document.getElementById('searchFilter').value = '';
-            filterSummaries();
-        }
+        const summaryItems = document.querySelectorAll('.summary-item');
         
-        function filterSummaries() {
-            const sentimentFilter = document.getElementById('sentimentFilter').value.toLowerCase();
-            const timeHorizonFilter = document.getElementById('timeHorizonFilter').value.toLowerCase();
-            const searchFilter = document.getElementById('searchFilter').value.toLowerCase();
+        summaryItems.forEach(item => {
+            let show = true;
             
-            const summaryItems = document.querySelectorAll('.summary-item');
+            // Sentiment filter
+            if (sentimentFilter && item.dataset.sentiment !== sentimentFilter) {
+                show = false;
+            }
             
-            summaryItems.forEach(item => {
-                let show = true;
-                
-                // Sentiment filter
-                if (sentimentFilter && item.dataset.sentiment !== sentimentFilter) {
+            // Time horizon filter
+            if (timeHorizonFilter && item.dataset.timeHorizon !== timeHorizonFilter) {
+                show = false;
+            }
+            
+            // Search filter
+            if (searchFilter) {
+                const searchText = (item.dataset.companies + ' ' + item.dataset.sectors).toLowerCase();
+                if (!searchText.includes(searchFilter)) {
                     show = false;
                 }
-                
-                // Time horizon filter
-                if (timeHorizonFilter && item.dataset.timeHorizon !== timeHorizonFilter) {
-                    show = false;
-                }
-                
-                // Search filter
-                if (searchFilter) {
-                    const searchText = (item.dataset.companies + ' ' + item.dataset.sectors).toLowerCase();
-                    if (!searchText.includes(searchFilter)) {
-                        show = false;
-                    }
-                }
-                
-                item.style.display = show ? 'block' : 'none';
-            });
-        }
-        
-        // Add event listeners for filters
-        document.getElementById('sentimentFilter').addEventListener('change', filterSummaries);
-        document.getElementById('timeHorizonFilter').addEventListener('change', filterSummaries);
-        document.getElementById('searchFilter').addEventListener('input', filterSummaries);
-    </script>
-</body>
-</html>
+            }
+            
+            item.style.display = show ? 'block' : 'none';
+        });
+    }
+    
+    // Add event listeners for filters
+    document.getElementById('sentimentFilter').addEventListener('change', filterSummaries);
+    document.getElementById('timeHorizonFilter').addEventListener('change', filterSummaries);
+    document.getElementById('searchFilter').addEventListener('input', filterSummaries);
+</script>
+{% endblock %}
