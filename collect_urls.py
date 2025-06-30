@@ -2,6 +2,7 @@
 """
 Smart URL collector for news articles.
 Crawls news homepages and extracts individual article URLs.
+Now integrated with SQLite database.
 """
 
 import os
@@ -9,6 +10,7 @@ import re
 import json
 import time
 import logging
+import uuid
 from datetime import datetime
 from urllib.parse import urljoin, urlparse, parse_qs
 from typing import List, Dict, Set
@@ -20,11 +22,13 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
+from database import DatabaseManager
+
 class URLCollector:
-    def __init__(self, output_file="collected_urls.json", log_file="url_collection.log", use_selenium=False):
-        self.output_file = output_file
+    def __init__(self, log_file="url_collection.log", use_selenium=False, db_path="news_pipeline.db"):
         self.use_selenium = use_selenium
         self.driver = None
+        self.db = DatabaseManager(db_path)
         
         # Setup logging
         logging.basicConfig(
@@ -262,22 +266,22 @@ class URLCollector:
             self.logger.error(f"Error fetching {base_url} with Selenium: {e}")
             return None
     
-    def collect_urls_from_page(self, base_url):
-        """Collect article URLs from a single base page"""
-        self.logger.info(f"Collecting URLs from: {base_url}")
+    def collect_urls_from_source(self, source):
+        """Collect article URLs from a single news source"""
+        self.logger.info(f"Collecting URLs from: {source.name} ({source.url})")
         
         # Get page content
         if self.use_selenium:
-            html_content = self.extract_urls_with_selenium(base_url)
+            html_content = self.extract_urls_with_selenium(source.url)
         else:
-            html_content = self.extract_urls_with_requests(base_url)
+            html_content = self.extract_urls_with_requests(source.url)
         
         if not html_content:
             return []
         
         # Parse HTML
         soup = BeautifulSoup(html_content, 'html.parser')
-        base_domain = self.get_domain(base_url)
+        base_domain = self.get_domain(source.url)
         
         # Get appropriate selectors for this domain
         selectors = self.article_selectors.get(base_domain, self.article_selectors['default'])
@@ -296,7 +300,7 @@ class URLCollector:
                     href = link.get('href')
                     if href:
                         # Convert relative URLs to absolute
-                        full_url = urljoin(base_url, href)
+                        full_url = urljoin(source.url, href)
                         
                         # Clean URL (remove fragments, query params for some cases)
                         parsed = urlparse(full_url)
@@ -309,96 +313,110 @@ class URLCollector:
                 self.logger.warning(f"Error processing selector '{selector}': {e}")
                 continue
         
+        # Convert to list with metadata
+        url_data = []
+        for url in found_urls:
+            url_data.append({
+                'source_id': source.id,
+                'url': url,
+                'domain': self.get_domain(url)
+            })
+        
         # Log results
-        self.logger.info(f"Found {len(found_urls)} article URLs from {base_url}")
+        self.logger.info(f"Found {len(url_data)} article URLs from {source.name}")
         
         # Log some examples
-        if found_urls:
-            examples = list(found_urls)[:5]
+        if url_data:
+            examples = [item['url'] for item in url_data[:5]]
             self.logger.info(f"Example URLs: {examples}")
         
-        return list(found_urls)
+        return url_data
     
-    def collect_urls_from_multiple_pages(self, base_urls, delay_between_requests=3):
-        """Collect URLs from multiple base pages"""
-        all_collected_urls = {}
+    def collect_urls_from_sources(self, sources, delay_between_requests=3):
+        """Collect URLs from multiple news sources and save to database"""
+        batch_id = str(uuid.uuid4())
+        self.logger.info(f"Starting URL collection batch {batch_id} from {len(sources)} sources")
+        
+        # Create collection batch in database
+        self.db.create_collection_batch(batch_id, len(sources), self.use_selenium)
+        
+        all_collected_urls = []
         total_urls = 0
+        error_message = None
         
-        self.logger.info(f"Starting URL collection from {len(base_urls)} base pages")
-        
-        for i, base_url in enumerate(base_urls, 1):
-            self.logger.info(f"Processing {i}/{len(base_urls)}: {base_url}")
-            
-            try:
-                urls = self.collect_urls_from_page(base_url)
-                all_collected_urls[base_url] = {
-                    'urls': urls,
-                    'count': len(urls),
-                    'collected_at': datetime.now().isoformat(),
-                    'success': True
-                }
-                total_urls += len(urls)
+        try:
+            for i, source in enumerate(sources, 1):
+                self.logger.info(f"Processing {i}/{len(sources)}: {source.name}")
                 
-            except Exception as e:
-                self.logger.error(f"Failed to collect from {base_url}: {e}")
-                all_collected_urls[base_url] = {
-                    'urls': [],
-                    'count': 0,
-                    'collected_at': datetime.now().isoformat(),
-                    'success': False,
-                    'error': str(e)
-                }
-            
-            # Delay between requests to be respectful
-            if i < len(base_urls):
-                time.sleep(delay_between_requests)
+                try:
+                    urls_data = self.collect_urls_from_source(source)
+                    
+                    if urls_data:
+                        # Add URLs to database
+                        added_count = self.db.add_collected_urls(urls_data, batch_id)
+                        all_collected_urls.extend(urls_data)
+                        total_urls += added_count
+                        
+                        # Update source collection stats
+                        self.db.update_collection_stats(source.id, added_count)
+                        
+                        self.logger.info(f"Added {added_count} URLs from {source.name} to database")
+                    else:
+                        self.logger.warning(f"No URLs found for {source.name}")
+                
+                except Exception as e:
+                    error_msg = f"Failed to collect from {source.name}: {e}"
+                    self.logger.error(error_msg)
+                    if not error_message:
+                        error_message = error_msg
+                
+                # Delay between requests to be respectful
+                if i < len(sources):
+                    time.sleep(delay_between_requests)
         
-        # Save results
-        collection_data = {
-            'collection_timestamp': datetime.now().isoformat(),
-            'total_base_pages': len(base_urls),
-            'total_articles_found': total_urls,
-            'results': all_collected_urls
+        except Exception as e:
+            error_message = f"Collection batch failed: {e}"
+            self.logger.error(error_message)
+        
+        finally:
+            # Complete the batch
+            self.db.complete_collection_batch(batch_id, total_urls, error_message)
+        
+        self.logger.info(f"URL collection batch {batch_id} completed. Total URLs: {total_urls}")
+        
+        return {
+            'batch_id': batch_id,
+            'total_urls': total_urls,
+            'sources_processed': len(sources),
+            'success': error_message is None,
+            'error_message': error_message,
+            'urls': all_collected_urls
         }
-        
-        self.save_collection_data(collection_data)
-        
-        self.logger.info(f"URL collection completed. Total URLs found: {total_urls}")
-        return collection_data
     
-    def save_collection_data(self, data):
-        """Save collection data to JSON file"""
-        try:
-            with open(self.output_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            self.logger.info(f"Collection data saved to {self.output_file}")
-        except Exception as e:
-            self.logger.error(f"Error saving collection data: {e}")
+    def collect_from_active_sources(self):
+        """Collect URLs from all active news sources"""
+        sources = self.db.get_news_sources(active_only=True)
+        
+        if not sources:
+            self.logger.warning("No active news sources found")
+            return {
+                'batch_id': None,
+                'total_urls': 0,
+                'sources_processed': 0,
+                'success': False,
+                'error_message': 'No active sources',
+                'urls': []
+            }
+        
+        return self.collect_urls_from_sources(sources)
     
-    def get_flat_url_list(self):
-        """Get a flat list of all collected URLs"""
-        try:
-            with open(self.output_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            flat_urls = []
-            for base_url, result in data.get('results', {}).items():
-                if result.get('success') and result.get('urls'):
-                    flat_urls.extend(result['urls'])
-            
-            # Remove duplicates while preserving order
-            seen = set()
-            unique_urls = []
-            for url in flat_urls:
-                if url not in seen:
-                    seen.add(url)
-                    unique_urls.append(url)
-            
-            return unique_urls
-            
-        except Exception as e:
-            self.logger.error(f"Error reading collection data: {e}")
-            return []
+    def get_latest_collected_urls(self, limit=1000):
+        """Get the most recent collected URLs from database"""
+        return self.db.get_latest_collected_urls(limit)
+    
+    def get_collection_stats(self):
+        """Get collection statistics from database"""
+        return self.db.get_collection_stats()
     
     def close(self):
         """Clean up resources"""
@@ -408,35 +426,34 @@ class URLCollector:
 
 def main():
     """Example usage"""
-    # Default financial news base pages
-    base_urls = [
-        "https://www.coindesk.com/",
-        "https://www.marketwatch.com/investing",
-        "https://finance.yahoo.com/news",
-        "https://www.cnbc.com/investing/",
-        "https://www.reuters.com/business/finance/",
-        "https://www.bloomberg.com/markets"
-    ]
-    
-    # Initialize collector
     collector = URLCollector(use_selenium=False)
     
     try:
-        # Collect URLs
-        results = collector.collect_urls_from_multiple_pages(base_urls)
-        
-        # Get flat list for pipeline
-        article_urls = collector.get_flat_url_list()
+        # Collect URLs from active sources
+        results = collector.collect_from_active_sources()
         
         print(f"\nCollection Summary:")
-        print(f"Base pages processed: {results['total_base_pages']}")
-        print(f"Total article URLs found: {results['total_articles_found']}")
-        print(f"Unique URLs after deduplication: {len(article_urls)}")
+        print(f"Batch ID: {results['batch_id']}")
+        print(f"Sources processed: {results['sources_processed']}")
+        print(f"Total URLs collected: {results['total_urls']}")
+        print(f"Success: {results['success']}")
         
-        if article_urls:
-            print(f"\nFirst 10 collected URLs:")
-            for i, url in enumerate(article_urls[:10], 1):
-                print(f"{i:2d}. {url}")
+        if results['error_message']:
+            print(f"Error: {results['error_message']}")
+        
+        # Get latest URLs
+        latest_urls = collector.get_latest_collected_urls(10)
+        if latest_urls:
+            print(f"\nFirst 10 latest URLs:")
+            for i, url_obj in enumerate(latest_urls[:10], 1):
+                print(f"{i:2d}. {url_obj.url}")
+        
+        # Get stats
+        stats = collector.get_collection_stats()
+        print(f"\nCollection Statistics:")
+        print(f"Total URLs in database: {stats['total_urls']}")
+        print(f"Unique domains: {stats['unique_domains']}")
+        print(f"URLs used in pipeline: {stats['urls_used']}")
     
     finally:
         collector.close()

@@ -9,6 +9,7 @@ import json
 import glob
 import threading
 import queue
+import uuid
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request, redirect, url_for, flash, session
 from pathlib import Path
@@ -19,7 +20,7 @@ try:
     from html_parser import HTMLParser  
     from ai_summarizer import AISummarizer
     from collect_urls import URLCollector
-    from news_sources import NewsSourcesManager
+    from database import DatabaseManager
     PIPELINE_AVAILABLE = True
 except ImportError:
     PIPELINE_AVAILABLE = False
@@ -206,7 +207,7 @@ class SummaryDataLoader:
 
 # Initialize components
 pipeline_runner = PipelineRunner()
-news_sources_manager = NewsSourcesManager()
+db_manager = DatabaseManager()
 data_loader = SummaryDataLoader()
 
 # ===== MAIN ROUTES =====
@@ -358,10 +359,27 @@ def clear_logs():
 @app.route('/admin/sources')
 def manage_sources():
     """News sources management page"""
-    sources = news_sources_manager.get_all_sources()
-    categories = news_sources_manager.get_categories()
+    sources = db_manager.get_news_sources()
+    categories = db_manager.get_categories()
+    
+    # Convert to dict format for template compatibility
+    sources_dict = []
+    for source in sources:
+        sources_dict.append({
+            'id': source.id,
+            'name': source.name,
+            'url': source.url,
+            'category': source.category,
+            'description': source.description,
+            'active': source.active,
+            'added_at': source.added_at,
+            'last_collected': source.last_collected,
+            'collection_count': source.collection_count,
+            'avg_articles_found': source.avg_articles_found
+        })
+    
     return render_template('sources.html', 
-                         sources=sources, 
+                         sources=sources_dict, 
                          categories=categories)
 
 @app.route('/admin/sources/add', methods=['POST'])
@@ -382,10 +400,10 @@ def add_source():
         flash('Name and URL are required.', 'error')
         return redirect(url_for('manage_sources'))
     
-    if news_sources_manager.add_source(name, url, category, description, active):
+    if db_manager.add_news_source(name, url, category, description, active):
         flash(f'News source "{name}" added successfully.', 'success')
     else:
-        flash('Failed to add news source.', 'error')
+        flash('Failed to add news source. Name or URL might already exist.', 'error')
     
     return redirect(url_for('manage_sources'))
 
@@ -402,12 +420,12 @@ def update_source(source_id):
         flash('Name and URL are required.', 'error')
         return redirect(url_for('manage_sources'))
     
-    if news_sources_manager.update_source(source_id, 
-                                        name=name, 
-                                        url=url, 
-                                        category=category, 
-                                        description=description, 
-                                        active=active):
+    if db_manager.update_news_source(source_id, 
+                                   name=name, 
+                                   url=url, 
+                                   category=category, 
+                                   description=description, 
+                                   active=active):
         flash(f'News source updated successfully.', 'success')
     else:
         flash('Failed to update news source.', 'error')
@@ -417,10 +435,10 @@ def update_source(source_id):
 @app.route('/admin/sources/delete/<int:source_id>', methods=['POST'])
 def delete_source(source_id):
     """Delete a news source"""
-    source = news_sources_manager.get_source_by_id(source_id)
+    source = db_manager.get_news_source_by_id(source_id)
     if source:
-        if news_sources_manager.delete_source(source_id):
-            flash(f'News source "{source["name"]}" deleted successfully.', 'success')
+        if db_manager.delete_news_source(source_id):
+            flash(f'News source "{source.name}" deleted successfully.', 'success')
         else:
             flash('Failed to delete news source.', 'error')
     else:
@@ -439,10 +457,10 @@ def collect_urls():
     
     use_selenium = 'use_selenium' in request.form
     
-    # Get active source URLs
-    active_urls = news_sources_manager.get_active_urls()
+    # Get active sources from database
+    active_sources = db_manager.get_news_sources(active_only=True)
     
-    if not active_urls:
+    if not active_sources:
         flash('No active news sources found. Please add and activate some sources first.', 'warning')
         return redirect(url_for('manage_sources'))
     
@@ -450,22 +468,18 @@ def collect_urls():
         # Initialize URL collector
         collector = URLCollector(use_selenium=use_selenium)
         
-        # Collect URLs
-        collection_results = collector.collect_urls_from_multiple_pages(active_urls)
+        # Collect URLs (this now saves directly to database)
+        results = collector.collect_urls_from_sources(active_sources)
         
-        # Update collection statistics
-        for base_url, result in collection_results['results'].items():
-            if result['success']:
-                news_sources_manager.update_collection_stats(base_url, result['count'])
-        
-        # Get flat list of URLs for session storage
-        article_urls = collector.get_flat_url_list()
-        session['collected_urls'] = article_urls
-        session['collection_timestamp'] = datetime.now().isoformat()
+        # Store batch info in session for viewing
+        if results['success']:
+            session['latest_batch_id'] = results['batch_id']
+            session['collection_timestamp'] = datetime.now().isoformat()
+            flash(f'URL collection completed! Found {results["total_urls"]} article URLs from {results["sources_processed"]} sources.', 'success')
+        else:
+            flash(f'URL collection failed: {results["error_message"]}', 'error')
         
         collector.close()
-        
-        flash(f'URL collection completed! Found {len(article_urls)} article URLs from {len(active_urls)} sources.', 'success')
         
     except Exception as e:
         flash(f'URL collection failed: {str(e)}', 'error')
@@ -482,6 +496,55 @@ def view_collected_urls():
                          urls=collected_urls,
                          collection_timestamp=collection_timestamp,
                          total_count=len(collected_urls))
+
+# ===== DATABASE ADMIN ROUTES =====
+
+@app.route('/admin/database')
+def database_admin():
+    """Database administration page"""
+    try:
+        # Get database schema
+        schema = db_manager.get_database_schema()
+        
+        # Get database statistics
+        db_stats = db_manager.get_database_stats()
+        
+        return render_template('database_admin.html', 
+                             schema=schema,
+                             db_stats=db_stats)
+    except Exception as e:
+        flash(f'Error loading database admin: {e}', 'error')
+        return redirect(url_for('admin'))
+
+@app.route('/admin/database/query', methods=['POST'])
+def execute_database_query():
+    """Execute a database query"""
+    query = request.form.get('query', '').strip()
+    
+    if not query:
+        return jsonify({'success': False, 'error': 'No query provided'})
+    
+    # Security check - only allow SELECT statements
+    query_upper = query.upper().strip()
+    if not query_upper.startswith('SELECT'):
+        return jsonify({'success': False, 'error': 'Only SELECT queries are allowed'})
+    
+    # Check for dangerous keywords
+    dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE']
+    for keyword in dangerous_keywords:
+        if keyword in query_upper:
+            return jsonify({'success': False, 'error': f'Keyword "{keyword}" is not allowed'})
+    
+    try:
+        results, columns = db_manager.execute_query(query)
+        return jsonify({
+            'success': True,
+            'results': results,
+            'columns': columns,
+            'row_count': len(results)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 # ===== TEMPLATE FILTERS =====
 
