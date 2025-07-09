@@ -402,6 +402,16 @@ class DatabaseManager:
         finally:
             conn.close()
     
+    def delete_collected_url(self, url: CollectedURL) -> bool:
+        """Delete a collected URL"""
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute('DELETE FROM collected_urls WHERE id = ?', (url.id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
+
     def get_collected_urls(self, batch_id: str = None, source_id: int = None, 
                           limit: int = None, used_only: bool = False) -> List[CollectedURL]:
         """Get collected URLs"""
