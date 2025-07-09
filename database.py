@@ -49,7 +49,7 @@ class CollectionBatch:
 class DatabaseManager:
     def __init__(self, db_path="news_pipeline.db"):
         self.db_path = db_path
-        self.init_database()
+        # self.init_database() # Uncomment to initialize database on first run
     
     def get_connection(self):
         """Get database connection"""
@@ -273,6 +273,7 @@ class DatabaseManager:
     def delete_news_source(self, source_id: int) -> bool:
         """Delete a news source"""
         conn = self.get_connection()
+        print(f"Deleting news source with ID: {source_id}")
         try:
             cursor = conn.execute('DELETE FROM news_sources WHERE id = ?', (source_id,))
             conn.commit()
