@@ -7,6 +7,7 @@ Scrapes HTML from URLs and saves them with normalized naming convention.
 import os
 import re
 import requests
+import database
 from datetime import datetime
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
@@ -145,20 +146,17 @@ class NewsScraper:
 def main():
     """Example usage"""
     # List of investing news URLs to scrape
-    urls = [
-        "https://www.marketwatch.com/investing",
-        "https://finance.yahoo.com/news",
-        "https://www.bloomberg.com/markets",
-        "https://www.cnbc.com/investing/",
-        "https://www.reuters.com/business/finance/"
-    ]
+
+    db = database.DatabaseManager()    
+    urls = db.get_collected_urls() 
+    actual_urls = [url.url for url in urls if url.url]  # Filter out empty URLs
     
     # Initialize scraper (set use_selenium=True for JavaScript-heavy sites)
     scraper = NewsScraper(use_selenium=False)
     
     try:
         # Scrape URLs
-        scraped_files = scraper.scrape_urls(urls)
+        scraped_files = scraper.scrape_urls(actual_urls)
         print(f"\nSuccessfully scraped {len(scraped_files)} files:")
         for file in scraped_files:
             print(f"  - {file}")
