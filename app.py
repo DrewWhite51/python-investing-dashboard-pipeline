@@ -130,6 +130,10 @@ class SummaryDataLoader:
                 with open(json_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     
+                    # Skip if parsed_summary is missing
+                    if 'parsed_summary' not in data:
+                        continue
+                    
                     # Extract filename info
                     filename = os.path.basename(json_file)
                     
@@ -147,8 +151,7 @@ class SummaryDataLoader:
                     summaries.append(data)
                     
             except Exception as e:
-                print(f"Error loading {json_file}: {e}")
-                continue
+                pass  # Silently skip broken JSON files
         
         # Sort by processed time (newest first)
         summaries.sort(key=lambda x: x.get('processed_datetime', datetime.min), reverse=True)
