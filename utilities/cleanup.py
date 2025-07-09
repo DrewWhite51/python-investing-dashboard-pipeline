@@ -234,13 +234,13 @@ def main():
         description='Cleanup script for investment news pipeline',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  python cleanup.py --status                           # Show directory status
-  python cleanup.py --clean scraped                    # Clean scraped HTML files
-  python cleanup.py --clean-all                       # Clean all directories
-  python cleanup.py --clean summaries --older-than 7  # Clean summaries older than 7 days
-  python cleanup.py --clean-all --dry-run             # Preview what would be deleted
-  python cleanup.py --clean-all --no-confirm          # Clean without confirmation
+        Examples:
+        python cleanup.py --status                           # Show directory status
+        python cleanup.py --clean scraped                    # Clean scraped HTML files
+        python cleanup.py --clean-all                       # Clean all directories
+        python cleanup.py --clean summaries --older-than 7  # Clean summaries older than 7 days
+        python cleanup.py --clean-all --dry-run             # Preview what would be deleted
+        python cleanup.py --clean-all --no-confirm          # Clean without confirmation
         """
     )
     
