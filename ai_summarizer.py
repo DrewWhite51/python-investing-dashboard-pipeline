@@ -201,6 +201,7 @@ class AISummarizer:
                     if summary_file:
                         summary_files.append(summary_file)
                         success = True
+                        os.remove(text_file)  # Remove original file after processing
                     else:
                         retry_count += 1
                         
