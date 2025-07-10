@@ -20,10 +20,18 @@ try:
     from html_parser import HTMLParser  
     from ai_summarizer import AISummarizer
     from collect_urls import URLCollector
-    from database import DatabaseManager
     PIPELINE_AVAILABLE = True
-except ImportError:
+except ImportError as e:
+    print(f"Pipeline components import error: {e}")
     PIPELINE_AVAILABLE = False
+
+# Import DatabaseManager separately (required for app to work)
+try:
+    from database import DatabaseManager
+except ImportError as e:
+    print(f"Critical error: Cannot import DatabaseManager: {e}")
+    print("Make sure database.py exists and is in the same directory")
+    exit(1)
 
 app = Flask(__name__)
 DB_PATH = "news_pipeline.db"  # Define this once
@@ -115,52 +123,84 @@ class PipelineRunner:
             pipeline_status['running'] = False
 
 class SummaryDataLoader:
-    def __init__(self, summaries_dir="summaries"):
-        self.summaries_dir = summaries_dir
+    def __init__(self, db_manager):
+        self.db_manager = db_manager
     
     def load_all_summaries(self):
-        """Load all summary JSON files"""
-        summaries = []
-        
-        # Get all JSON files in summaries directory
-        json_pattern = os.path.join(self.summaries_dir, "summary_*.json")
-        json_files = glob.glob(json_pattern)
-        
-        for json_file in json_files:
-            try:
-                with open(json_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    
-                    # Skip if parsed_summary is missing
-                    if 'parsed_summary' not in data:
-                        continue
-                    
-                    # Extract filename info
-                    filename = os.path.basename(json_file)
-                    
-                    # Add metadata
-                    data['filename'] = filename
-                    data['file_path'] = json_file
-                    
-                    # Parse processed_at if available
-                    if 'processed_at' in data:
-                        try:
-                            data['processed_datetime'] = datetime.fromisoformat(data['processed_at'].replace('Z', '+00:00'))
-                        except:
-                            data['processed_datetime'] = None
-                    
-                    summaries.append(data)
-                    
-            except Exception as e:
-                pass  # Silently skip broken JSON files
-        
-        # Sort by processed time (newest first)
-        summaries.sort(key=lambda x: x.get('processed_datetime', datetime.min), reverse=True)
-        
-        return summaries
+        """Load all summaries from database"""
+        try:
+            conn = self.db_manager.get_connection()
+            cursor = conn.execute('''
+                SELECT 
+                    id, source_file, processed_at, model_used, raw_response,
+                    summary, investment_implications, key_metrics, companies_mentioned,
+                    sectors_affected, sentiment, risk_factors, opportunities,
+                    time_horizon, confidence_score, created_at, pipeline_run_id, url_id
+                FROM article_summaries 
+                ORDER BY processed_at DESC
+            ''')
+            
+            summaries = []
+            for row in cursor.fetchall():
+                # Convert database row to dictionary format
+                summary_data = {
+                    'id': row['id'],
+                    'source_file': row['source_file'],
+                    'processed_at': row['processed_at'],
+                    'model_used': row['model_used'],
+                    'raw_response': row['raw_response'],
+                    'filename': os.path.basename(row['source_file']) if row['source_file'] else f"summary_{row['id']}.json",
+                    'file_path': row['source_file'],
+                    'pipeline_run_id': row['pipeline_run_id'],
+                    'url_id': row['url_id']
+                }
+                
+                # Build parsed_summary from individual fields
+                parsed_summary = {
+                    'summary': row['summary'],
+                    'investment_implications': row['investment_implications'],
+                    'sentiment': row['sentiment'],
+                    'time_horizon': row['time_horizon'],
+                    'confidence_score': row['confidence_score']
+                }
+                
+                # Parse JSON arrays back to lists
+                try:
+                    parsed_summary['key_metrics'] = json.loads(row['key_metrics']) if row['key_metrics'] else []
+                    parsed_summary['companies_mentioned'] = json.loads(row['companies_mentioned']) if row['companies_mentioned'] else []
+                    parsed_summary['sectors_affected'] = json.loads(row['sectors_affected']) if row['sectors_affected'] else []
+                    parsed_summary['risk_factors'] = json.loads(row['risk_factors']) if row['risk_factors'] else []
+                    parsed_summary['opportunities'] = json.loads(row['opportunities']) if row['opportunities'] else []
+                except json.JSONDecodeError:
+                    # If JSON parsing fails, set as empty lists
+                    parsed_summary['key_metrics'] = []
+                    parsed_summary['companies_mentioned'] = []
+                    parsed_summary['sectors_affected'] = []
+                    parsed_summary['risk_factors'] = []
+                    parsed_summary['opportunities'] = []
+                
+                summary_data['parsed_summary'] = parsed_summary
+                
+                # Parse processed_at datetime
+                if row['processed_at']:
+                    try:
+                        summary_data['processed_datetime'] = datetime.fromisoformat(row['processed_at'].replace('Z', '+00:00'))
+                    except:
+                        summary_data['processed_datetime'] = None
+                else:
+                    summary_data['processed_datetime'] = None
+                
+                summaries.append(summary_data)
+            
+            conn.close()
+            return summaries
+            
+        except Exception as e:
+            print(f"Error loading summaries from database: {e}")
+            return []
     
     def get_summary_stats(self, summaries):
-        """Get statistics about the summaries"""
+        """Get statistics about the summaries (same logic as before)"""
         if not summaries:
             return {}
         
@@ -208,11 +248,84 @@ class SummaryDataLoader:
             'top_sectors': list(sectors)[:10],
             'top_companies': list(companies)[:10]
         }
+    
+    def get_summary_by_id(self, summary_id):
+        """Get a single summary by database ID"""
+        try:
+            conn = self.db_manager.get_connection()
+            cursor = conn.execute('''
+                SELECT 
+                    id, source_file, processed_at, model_used, raw_response,
+                    summary, investment_implications, key_metrics, companies_mentioned,
+                    sectors_affected, sentiment, risk_factors, opportunities,
+                    time_horizon, confidence_score, created_at, pipeline_run_id, url_id
+                FROM article_summaries 
+                WHERE id = ?
+            ''', (summary_id,))
+            
+            row = cursor.fetchone()
+            conn.close()
+            
+            if not row:
+                return None
+            
+            # Convert to same format as load_all_summaries
+            summary_data = {
+                'id': row['id'],
+                'source_file': row['source_file'],
+                'processed_at': row['processed_at'],
+                'model_used': row['model_used'],
+                'raw_response': row['raw_response'],
+                'filename': os.path.basename(row['source_file']) if row['source_file'] else f"summary_{row['id']}.json",
+                'file_path': row['source_file'],
+                'pipeline_run_id': row['pipeline_run_id'],
+                'url_id': row['url_id']
+            }
+            
+            # Build parsed_summary
+            parsed_summary = {
+                'summary': row['summary'],
+                'investment_implications': row['investment_implications'],
+                'sentiment': row['sentiment'],
+                'time_horizon': row['time_horizon'],
+                'confidence_score': row['confidence_score']
+            }
+            
+            # Parse JSON arrays
+            try:
+                parsed_summary['key_metrics'] = json.loads(row['key_metrics']) if row['key_metrics'] else []
+                parsed_summary['companies_mentioned'] = json.loads(row['companies_mentioned']) if row['companies_mentioned'] else []
+                parsed_summary['sectors_affected'] = json.loads(row['sectors_affected']) if row['sectors_affected'] else []
+                parsed_summary['risk_factors'] = json.loads(row['risk_factors']) if row['risk_factors'] else []
+                parsed_summary['opportunities'] = json.loads(row['opportunities']) if row['opportunities'] else []
+            except json.JSONDecodeError:
+                parsed_summary['key_metrics'] = []
+                parsed_summary['companies_mentioned'] = []
+                parsed_summary['sectors_affected'] = []
+                parsed_summary['risk_factors'] = []
+                parsed_summary['opportunities'] = []
+            
+            summary_data['parsed_summary'] = parsed_summary
+            
+            # Parse datetime
+            if row['processed_at']:
+                try:
+                    summary_data['processed_datetime'] = datetime.fromisoformat(row['processed_at'].replace('Z', '+00:00'))
+                except:
+                    summary_data['processed_datetime'] = None
+            
+            return summary_data
+            
+        except Exception as e:
+            print(f"Error loading summary {summary_id} from database: {e}")
+            return None
+        
 
 # Initialize components
 pipeline_runner = PipelineRunner()
 db_manager = DatabaseManager()
-data_loader = SummaryDataLoader()
+data_loader = SummaryDataLoader(db_manager)
+
 
 # ===== MAIN ROUTES =====
 
@@ -226,22 +339,53 @@ def index():
                          summaries=summaries, 
                          stats=stats)
 
-@app.route('/summary/<filename>')
-def view_summary(filename):
-    """View individual summary details"""
-    summaries = data_loader.load_all_summaries()
-    
-    # Find the specific summary
-    summary = None
-    for s in summaries:
-        if s['filename'] == filename:
-            summary = s
-            break
+@app.route('/summary/<int:summary_id>')
+def view_summary(summary_id):
+    """View individual summary details by database ID"""
+    summary = data_loader.get_summary_by_id(summary_id)
     
     if not summary:
-        return "Summary not found", 404
+        flash('Summary not found', 'error')
+        return redirect(url_for('index'))
     
     return render_template('summary_detail.html', summary=summary)
+
+@app.route('/admin/summary_stats')
+def summary_database_stats():
+    """Get summary statistics from database"""
+    try:
+        conn = db_manager.get_connection()
+        
+        # Get counts by sentiment
+        cursor = conn.execute('''
+            SELECT sentiment, COUNT(*) as count 
+            FROM article_summaries 
+            WHERE sentiment IS NOT NULL 
+            GROUP BY sentiment
+        ''')
+        sentiment_stats = dict(cursor.fetchall())
+        
+        # Get total count
+        cursor = conn.execute('SELECT COUNT(*) FROM article_summaries')
+        total_count = cursor.fetchone()[0]
+        
+        # Get recent summaries
+        cursor = conn.execute('''
+            SELECT COUNT(*) FROM article_summaries 
+            WHERE processed_at > datetime('now', '-7 days')
+        ''')
+        recent_count = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        return jsonify({
+            'total_summaries': total_count,
+            'recent_summaries': recent_count,
+            'sentiment_breakdown': sentiment_stats
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
 
 # ===== API ROUTES =====
 
