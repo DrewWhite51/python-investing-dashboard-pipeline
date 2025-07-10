@@ -60,6 +60,7 @@ class DatabaseManager:
     def init_database(self):
         """Initialize database with tables"""
         conn = self.get_connection()
+        print("Initializing database...")
         try:
             # Create news sources table
             conn.execute('''
@@ -123,17 +124,55 @@ class DatabaseManager:
                     error_message TEXT
                 )
             ''')
+
+            # Create article summaries table
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS article_summaries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_file TEXT NOT NULL,
+                    processed_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    model_used TEXT NOT NULL,
+                    raw_response TEXT NOT NULL,
+                    
+                    -- Parsed summary fields
+                    summary TEXT,
+                    investment_implications TEXT,
+                    key_metrics TEXT,  -- JSON array stored as text
+                    companies_mentioned TEXT,  -- JSON array stored as text
+                    sectors_affected TEXT,  -- JSON array stored as text
+                    sentiment TEXT,
+                    risk_factors TEXT,  -- JSON array stored as text
+                    opportunities TEXT,  -- JSON array stored as text
+                    time_horizon TEXT,
+                    confidence_score REAL,
+                    
+                    -- Metadata
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    pipeline_run_id TEXT,
+                    url_id INTEGER,
+                    
+                    FOREIGN KEY (pipeline_run_id) REFERENCES pipeline_runs (run_id) ON DELETE SET NULL,
+                    FOREIGN KEY (url_id) REFERENCES collected_urls (id) ON DELETE SET NULL,
+                    UNIQUE(source_file)
+                )
+            ''')
             
             # Create indexes for better performance
             conn.execute('CREATE INDEX IF NOT EXISTS idx_collected_urls_source_id ON collected_urls(source_id)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_collected_urls_batch_id ON collected_urls(collection_batch_id)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_collected_urls_domain ON collected_urls(domain)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_news_sources_active ON news_sources(active)')
+
+            # Add this with your other indexes
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_article_summaries_processed_at ON article_summaries(processed_at)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_article_summaries_sentiment ON article_summaries(sentiment)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_article_summaries_pipeline_run ON article_summaries(pipeline_run_id)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_article_summaries_confidence ON article_summaries(confidence_score)')
             
             conn.commit()
             
             # Migrate existing data if JSON files exist
-            self._migrate_existing_data(conn)
+            # self._migrate_existing_data(conn)
             
         except Exception as e:
             conn.rollback()
@@ -653,6 +692,17 @@ class DatabaseManager:
         finally:
             conn.close()
 
+
+    def check_tables(self):
+        """Check what tables exist"""
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [row[0] for row in cursor.fetchall()]
+            print(f"Tables in database: {tables}")
+            return tables
+        finally:
+            conn.close()
 
 def main():
     """Example usage and testing"""
