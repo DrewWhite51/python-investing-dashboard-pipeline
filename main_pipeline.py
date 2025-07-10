@@ -5,13 +5,15 @@ Main pipeline script to orchestrate the entire news scraping and summarization p
 
 import os
 import sys
+import glob
 import argparse
 from datetime import datetime
 from dotenv import load_dotenv
 # Import our custom modules
 from web_scraper import NewsScraper
 from html_parser import HTMLParser  
-from ai_summarizer import AISummarizer
+from ai_summarizer import OllamaAISummarizer as AISummarizer
+from collect_urls import URLCollector
 import database
 
 class NewsPipeline:
@@ -24,6 +26,7 @@ class NewsPipeline:
         self.scraper = None
         self.parser = None
         self.summarizer = None
+        self.collector = None
         self.db_manager = database.DatabaseManager()
         
         # Default URLs for financial news
@@ -39,13 +42,13 @@ class NewsPipeline:
         
         # Initialize parser
         self.parser = HTMLParser()
+
+        # Initialize collector
+        self.collector = URLCollector()
         
         # Initialize summarizer
         try:
-            self.summarizer = AISummarizer(
-                api_key=self.anthropic_api_key,
-                model=self.model
-            )
+            self.summarizer = AISummarizer(model="llama3.1:8b")
         except ValueError as e:
             print(f"Warning: Could not initialize AI summarizer: {e}")
             self.summarizer = None
@@ -55,7 +58,7 @@ class NewsPipeline:
     def run_scraping_phase(self, urls=None):
         """Run the web scraping phase"""
         print("\n" + "="*60)
-        print("PHASE 1: WEB SCRAPING")
+        print("PHASE 3: WEB SCRAPING")
         print("="*60)
         
         urls = [{'url': url.url, 'db_id': url.id} for url in self.db_manager.get_collected_urls() if url.url and url.used_in_pipeline == 0]  # Filter out empty URLs, this should only get the urls not used in the pipeline yet
@@ -70,7 +73,7 @@ class NewsPipeline:
     def run_parsing_phase(self):
         """Run the HTML parsing phase"""
         print("\n" + "="*60)
-        print("PHASE 2: HTML PARSING")
+        print("PHASE 4: HTML PARSING")
         print("="*60)
         
         try:
@@ -84,12 +87,11 @@ class NewsPipeline:
     def run_summarization_phase(self):
         """Run the AI summarization phase"""
         print("\n" + "="*60)
-        print("PHASE 3: AI SUMMARIZATION")
+        print("PHASE 5: AI SUMMARIZATION")
         print("="*60)
         
         if not self.summarizer:
             print("AI summarizer not available. Skipping summarization phase.")
-            print("Please set ANTHROPIC_API_KEY environment variable to enable AI summarization.")
             return []
         
         try:
@@ -100,27 +102,162 @@ class NewsPipeline:
             print(f"Error in summarization phase: {e}")
             return []
     
-    def run_database_translation_phase(self):
+    def run_database_transformation_phase(self):
         """Run the database translation phase where we move data from summaries to the database"""
         print("\n" + "="*60)
-        print("PHASE 4: DATABASE TRANSLATION")
+        print("PHASE 6: DATABASE TRANSLATION")
         print("="*60)
+        
+        import json
+        import glob
+        import os
+        from database import DatabaseManager
+        
+        try:
+            # Initialize database manager
+            db_manager = DatabaseManager()
+            
+            # Get count before translation
+            initial_count = db_manager.get_summaries_count()
+            print(f"Initial summaries in database: {initial_count}")
+            
+            # Find all summary JSON files
+            summaries_dir = "summaries"
+            json_pattern = os.path.join(summaries_dir, "summary_*.json")
+            json_files = glob.glob(json_pattern)
+            
+            print(f"Found {len(json_files)} summary files to process")
+            
+            if not json_files:
+                print("No summary files found in summaries directory")
+                return
+            
+            # Process each summary file
+            success_count = 0
+            error_count = 0
+            skipped_count = 0
+            
+            for json_file in json_files:
+                try:
+                    filename = os.path.basename(json_file)
+                    print(f"Processing: {filename}")
+                    
+                    with open(json_file, 'r', encoding='utf-8') as f:
+                        summary_data = json.load(f)
+                    
+                    # Check if already exists
+                    source_file = summary_data.get('source_file', filename)
+                    if db_manager.check_summary_exists(source_file):
+                        print(f"  ⏭️  Already exists in database, skipping")
+                        skipped_count += 1
+                        continue
+                    
+                    # Validate required fields
+                    if 'parsed_summary' not in summary_data:
+                        print(f"  ⚠️  Skipping - missing parsed_summary")
+                        error_count += 1
+                        continue
+                    
+                    # Add to database
+                    if db_manager.add_article_summary(summary_data):
+                        print(f"  ✅ Successfully added to database")
+                        success_count += 1
+                    else:
+                        print(f"  ❌ Failed to add to database")
+                        error_count += 1
+                        
+                except json.JSONDecodeError as e:
+                    print(f"  ❌ JSON decode error: {e}")
+                    error_count += 1
+                except Exception as e:
+                    print(f"  ❌ Error processing: {e}")
+                    error_count += 1
+            
+            # Final count
+            final_count = db_manager.get_summaries_count()
+            new_summaries = final_count - initial_count
+            
+            print(f"\n📊 DATABASE TRANSLATION SUMMARY:")
+            print(f"  • Files processed: {len(json_files)}")
+            print(f"  • Successfully added: {success_count}")
+            print(f"  • Skipped (duplicates): {skipped_count}")
+            print(f"  • Errors: {error_count}")
+            print(f"  • New summaries in database: {new_summaries}")
+            print(f"  • Total summaries in database: {final_count}")
+            
+            if success_count > 0:
+                print(f"\n✅ Database translation completed successfully!")
+            elif skipped_count > 0:
+                print(f"\n⏭️  All summaries already exist in database")
+            else:
+                print(f"\n⚠️  No summaries were added to the database")
+                
+        except Exception as e:
+            print(f"❌ Database translation phase failed: {e}")
+            raise e
 
     def run_resource_cleanup_phase(self):
         """Run the resource cleanup phase to remove temporary files"""
         print("\n" + "="*60)
-        print("PHASE 5: RESOURCE CLEANUP")
+        print("PHASE 7: RESOURCE CLEANUP")
         print("="*60)
         
-        # try:
-        #     self.scraper.cleanup()
-        #     self.parser.cleanup()
-        #     if self.summarizer:
-        #         self.summarizer.cleanup()
-        #     print("Resource cleanup completed successfully.")
-        # except Exception as e:
-        #     print(f"Error during resource cleanup: {e}")
+
+        files = glob.glob("summaries/*.json")
+        for file in files:
+            os.remove(file)
+            print(f"Removed: {file}")
+
+        files = glob.glob("cleaned_text/*.txt")
+        for file in files:
+            os.remove(file)
+            print(f"Removed: {file}")
+
+        files = glob.glob("scraped_html/*.html")
+        for file in files:
+            os.remove(file)
+            print(f"Removed: {file}")
         
+    def run_summary_translation_phase(self):
+        """Run the summary translation phase to move AI summaries to the database"""
+        print("\n" + "="*60)
+        print("PHASE 6: SUMMARY TRANSLATION")
+        print("="*60)
+        
+        if not self.summarizer:
+            print("AI summarizer not available. Skipping summary translation phase.")
+            return
+        
+        try:
+            self.summarizer.translate_summaries_to_db()
+            print("Summary translation completed successfully.")
+        except Exception as e:
+            print(f"Error in summary translation phase: {e}")
+
+    def run_collect_urls_phase(self):
+        """Collect URLs from the database"""
+        print("\n" + "="*60)
+        print("PHASE 1: COLLECTING URLS")
+        print("="*60)
+        
+        try:
+            urls = self.collector.collect_from_active_sources()
+            return urls
+        except Exception as e:
+            print(f"Error collecting URLs: {e}")
+            return []
+
+    def run_clean_collected_urls_phase(self):
+        """Clean collected URLs by removing duplicates and invalid entries"""
+        print("\n" + "="*60)
+        print("PHASE 2: COLLECTING URLS")
+        print("="*60)
+        collected_urls = self.db_manager.get_collected_urls()
+
+        for url in collected_urls:
+            if url.url[-1] == '/':
+                url.url = url.url[:-1]
+                deleted_url = self.db_manager.delete_collected_url(url)
 
     def run_full_pipeline(self, urls=None):
         """Run the complete pipeline"""
@@ -133,14 +270,27 @@ class NewsPipeline:
         # Initialize components
         self.initialize_components()
         
-        # Phase 1: Scraping
+        # Phase 1: Collect URLs
+        collected_urls = self.run_collect_urls_phase()
+
+        # Phase 2: Clean unwanted urls
+        cleaned_url = self.run_clean_collected_urls_phase()
+
+        # Phase 3: Scraping
         scraped_files = self.run_scraping_phase(urls)
         
-        # Phase 2: Parsing
+        # Phase 4: Parsing
         parsed_files = self.run_parsing_phase()
         
-        # Phase 3: Summarization
+        # Phase 5: Summarization
         summary_files = self.run_summarization_phase()
+
+        # Phase 6: Database translation
+        database_transformation = self.run_database_transformation_phase()
+
+        # Phase 7: Resource cleanup
+        self.run_resource_cleanup_phase()
+
         
         # Pipeline summary
         end_time = datetime.now()
@@ -164,6 +314,7 @@ class NewsPipeline:
             'scraped_files': scraped_files,
             'parsed_files': parsed_files,
             'summary_files': summary_files,
+            'collected_urls': collected_urls,
             'duration': duration
         }
     
