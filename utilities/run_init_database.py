@@ -14,7 +14,7 @@ if __name__ == '__main__':
     db_manager = DatabaseManager(db_path)
 
     # Initialize the database
-    db_manager.init_database()
+    # db_manager.init_database()
     checked_tables = db_manager.check_tables()
 
     print("Database initialized successfully.")   
