@@ -761,6 +761,63 @@ class DatabaseManager:
         finally:
             conn.close()
 
+    def check_summary_exists(self, source_file: str) -> bool:
+        """Check if a summary already exists in the database"""
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute('SELECT COUNT(*) FROM article_summaries WHERE source_file = ?', (source_file,))
+            return cursor.fetchone()[0] > 0
+        finally:
+            conn.close()
+
+    def add_article_summary(self, summary_data: Dict) -> bool:
+        """Add an article summary to the database"""
+        conn = self.get_connection()
+        try:
+            parsed = summary_data.get('parsed_summary', {})
+            
+            conn.execute('''
+                INSERT OR REPLACE INTO article_summaries (
+                    source_file, processed_at, model_used, raw_response,
+                    summary, investment_implications, key_metrics, companies_mentioned,
+                    sectors_affected, sentiment, risk_factors, opportunities,
+                    time_horizon, confidence_score, pipeline_run_id, url_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                summary_data.get('source_file'),
+                summary_data.get('processed_at'),
+                summary_data.get('model_used'),
+                summary_data.get('raw_response'),
+                parsed.get('summary'),
+                parsed.get('investment_implications'),
+                json.dumps(parsed.get('key_metrics', [])),  # Store as JSON string
+                json.dumps(parsed.get('companies_mentioned', [])),
+                json.dumps(parsed.get('sectors_affected', [])),
+                parsed.get('sentiment'),
+                json.dumps(parsed.get('risk_factors', [])),
+                json.dumps(parsed.get('opportunities', [])),
+                parsed.get('time_horizon'),
+                parsed.get('confidence_score'),
+                summary_data.get('pipeline_run_id'),  # You may need to set this
+                summary_data.get('url_id')  # You may need to set this
+            ))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error adding summary to database: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def get_summaries_count(self) -> int:
+        """Get count of summaries in database"""
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute('SELECT COUNT(*) FROM article_summaries')
+            return cursor.fetchone()[0]
+        finally:
+            conn.close()
+
 def main():
     """Example usage and testing"""
     db = DatabaseManager()
