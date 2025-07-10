@@ -26,6 +26,7 @@ except ImportError:
     PIPELINE_AVAILABLE = False
 
 app = Flask(__name__)
+DB_PATH = "news_pipeline.db"  # Define this once
 app.secret_key = 'your-secret-key-change-this'  # Change this in production
 
 # Global variables for pipeline status
@@ -521,33 +522,47 @@ def database_admin():
 
 @app.route('/admin/database/query', methods=['POST'])
 def execute_database_query():
-    """Execute a database query"""
+    """Execute any database query (admin only)"""
     query = request.form.get('query', '').strip()
     
     if not query:
         return jsonify({'success': False, 'error': 'No query provided'})
     
-    # Security check - only allow SELECT statements
-    query_upper = query.upper().strip()
-    if not query_upper.startswith('SELECT'):
-        return jsonify({'success': False, 'error': 'Only SELECT queries are allowed'})
-    
-    # Check for dangerous keywords
-    dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE']
-    for keyword in dangerous_keywords:
-        if keyword in query_upper:
-            return jsonify({'success': False, 'error': f'Keyword "{keyword}" is not allowed'})
-    
     try:
-        results, columns = db_manager.execute_query(query)
+        results, columns, operation = db_manager.execute_any_query(query)
         return jsonify({
             'success': True,
             'results': results,
             'columns': columns,
+            'operation': operation,
             'row_count': len(results)
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/admin/database/table/<table_name>')
+def get_table_data(table_name):
+    """Get data from a specific table"""
+    try:
+        results, columns = db_manager.get_table_data(table_name)
+        return jsonify({
+            'success': True,
+            'results': results,
+            'columns': columns,
+            'table_name': table_name
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/admin/debug_db')
+def debug_database():
+    """Debug database information"""
+    db_manager.debug_database_info()
+    return jsonify({
+        'db_path': db_manager.db_path,
+        'absolute_path': os.path.abspath(db_manager.db_path),
+        'exists': os.path.exists(db_manager.db_path)
+    })
 
 # ===== TEMPLATE FILTERS =====
 
@@ -614,6 +629,20 @@ def confidence_color_filter(confidence):
 # ===== MAIN EXECUTION =====
 
 if __name__ == '__main__':
+    # Ensure database is initialized
+    print(f"Using database: {os.path.abspath(DB_PATH)}")
+    
+    # Initialize database if needed
+    try:
+        db_manager.init_database()
+        print("Database initialized successfully")
+        
+        # Debug: Check tables
+        db_manager.debug_database_info()
+        
+    except Exception as e:
+        print(f"Database initialization error: {e}")
+    
     # Create necessary directories
     os.makedirs('templates', exist_ok=True)
     os.makedirs('static/css', exist_ok=True)
