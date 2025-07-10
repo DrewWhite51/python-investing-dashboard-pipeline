@@ -484,7 +484,7 @@ class DatabaseManager:
         finally:
             conn.close()
     
-    def mark_urls_used_in_pipeline(self, url_ids: List[int], pipeline_run_id: str):
+    def mark_urls_used_in_pipeline(self, url_ids: List[int]):
         """Mark URLs as used in a pipeline run"""
         if not url_ids:
             return
@@ -494,9 +494,9 @@ class DatabaseManager:
             placeholders = ','.join(['?'] * len(url_ids))
             conn.execute(f'''
                 UPDATE collected_urls 
-                SET used_in_pipeline = 1, pipeline_run_id = ?
+                SET used_in_pipeline = 1
                 WHERE id IN ({placeholders})
-            ''', [pipeline_run_id] + url_ids)
+            ''', url_ids)
             conn.commit()
         finally:
             conn.close()
@@ -640,7 +640,7 @@ class DatabaseManager:
     
     def complete_pipeline_run(self, run_id: str, status: str, urls_processed: int, 
                             summaries_generated: int, error_message: str = None):
-        """Complete a pipeline run"""
+        """Complete collection_batchesa pipeline run"""
         conn = self.get_connection()
         try:
             conn.execute('''
