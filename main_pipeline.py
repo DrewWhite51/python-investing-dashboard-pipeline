@@ -58,9 +58,7 @@ class NewsPipeline:
         print("PHASE 1: WEB SCRAPING")
         print("="*60)
         
-        # urls = urls or self.default_urls
-        urls = [url.url for url in self.db_manager.get_collected_urls() if url.url]  # Filter out empty URLs
-        
+        urls = [{'url': url.url, 'db_id': url.id} for url in self.db_manager.get_collected_urls() if url.url and url.used_in_pipeline == 0]  # Filter out empty URLs, this should only get the urls not used in the pipeline yet
         try:
             scraped_files = self.scraper.scrape_urls(urls)
             print(f"\nScraping phase completed. {len(scraped_files)} files scraped.")
@@ -102,6 +100,28 @@ class NewsPipeline:
             print(f"Error in summarization phase: {e}")
             return []
     
+    def run_database_translation_phase(self):
+        """Run the database translation phase where we move data from summaries to the database"""
+        print("\n" + "="*60)
+        print("PHASE 4: DATABASE TRANSLATION")
+        print("="*60)
+
+    def run_resource_cleanup_phase(self):
+        """Run the resource cleanup phase to remove temporary files"""
+        print("\n" + "="*60)
+        print("PHASE 5: RESOURCE CLEANUP")
+        print("="*60)
+        
+        # try:
+        #     self.scraper.cleanup()
+        #     self.parser.cleanup()
+        #     if self.summarizer:
+        #         self.summarizer.cleanup()
+        #     print("Resource cleanup completed successfully.")
+        # except Exception as e:
+        #     print(f"Error during resource cleanup: {e}")
+        
+
     def run_full_pipeline(self, urls=None):
         """Run the complete pipeline"""
         start_time = datetime.now()
