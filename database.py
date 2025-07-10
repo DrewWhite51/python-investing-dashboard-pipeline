@@ -49,7 +49,7 @@ class CollectionBatch:
 class DatabaseManager:
     def __init__(self, db_path="news_pipeline.db"):
         self.db_path = db_path
-        # self.init_database() # Uncomment to initialize database on first run
+        self.init_database() # Uncomment to initialize database on first run
     
     def get_connection(self):
         """Get database connection"""
@@ -216,6 +216,63 @@ class DatabaseManager:
             except Exception as e:
                 print(f"Error migrating news sources: {e}")
     
+    def debug_database_info(self):
+        """Debug database file information"""
+        import os
+        print(f"Database path: {self.db_path}")
+        print(f"Absolute path: {os.path.abspath(self.db_path)}")
+        print(f"File exists: {os.path.exists(self.db_path)}")
+        if os.path.exists(self.db_path):
+            print(f"File size: {os.path.getsize(self.db_path)} bytes")
+            print(f"Modified: {datetime.fromtimestamp(os.path.getmtime(self.db_path))}")
+        
+        # Check tables in this specific database
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [row[0] for row in cursor.fetchall()]
+            print(f"Tables in {self.db_path}: {tables}")
+        finally:
+            conn.close()
+    
+    def execute_any_query(self, query: str) -> Tuple[List[Dict], List[str], str]:
+        """Execute any SQL query and return results with operation type"""
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(query)
+            
+            # Determine operation type
+            query_upper = query.upper().strip()
+            if query_upper.startswith('SELECT'):
+                columns = [description[0] for description in cursor.description] if cursor.description else []
+                results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                operation = 'SELECT'
+            elif query_upper.startswith(('INSERT', 'UPDATE', 'DELETE')):
+                conn.commit()
+                results = []
+                columns = []
+                operation = f"{query_upper.split()[0]} - {cursor.rowcount} rows affected"
+            else:
+                conn.commit()
+                results = []
+                columns = []
+                operation = 'DDL_OPERATION'
+            
+            return results, columns, operation
+        finally:
+            conn.close()
+
+    def get_table_data(self, table_name: str, limit: int = 100) -> Tuple[List[Dict], List[str]]:
+        """Get sample data from a specific table"""
+        conn = self.get_connection()
+        try:
+            cursor = conn.execute(f"SELECT * FROM {table_name} LIMIT ?", (limit,))
+            columns = [description[0] for description in cursor.description]
+            results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            return results, columns
+        finally:
+            conn.close()
+ 
     # ===== NEWS SOURCES METHODS =====
     
     def add_news_source(self, name: str, url: str, category: str = "General", 
