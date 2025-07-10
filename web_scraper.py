@@ -23,6 +23,7 @@ class NewsScraper:
         self.output_dir = output_dir
         self.use_selenium = use_selenium
         self.driver = None
+        self.db_manager = database.DatabaseManager()
         
         # Create output directory if it doesn't exist
         os.makedirs(output_dir, exist_ok=True)
@@ -126,15 +127,18 @@ class NewsScraper:
     def scrape_urls(self, urls):
         """Scrape multiple URLs"""
         scraped_files = []
-        
+        used_urls_ids = []
         for url in urls:
-            filepath = self.scrape_url(url)
+            print(url)
+            filepath = self.scrape_url(url['url'])
             if filepath:
                 scraped_files.append(filepath)
+                used_urls_ids.append(url['db_id'])
             
             # Be respectful - add delay between requests
             time.sleep(2)
         
+        marked_urls = self.db_manager.mark_urls_used_in_pipeline(used_urls_ids)
         return scraped_files
     
     def close(self):
