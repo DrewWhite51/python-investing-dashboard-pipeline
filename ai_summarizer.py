@@ -121,7 +121,7 @@ Be objective and factual. Only return the JSON object, no additional text."""
             response = requests.post(
                 f"{self.ollama_url}/api/generate",
                 json=payload,
-                timeout=120  # Local processing can take time
+                timeout=180  # Local processing can take time
             )
             
             if response.status_code == 200:
@@ -165,8 +165,36 @@ Be objective and factual. Only return the JSON object, no additional text."""
         return response_text.strip()
 
     def process_text_file(self, text_filepath):
-        """Process a single text file and generate summary"""
+        """Process a single text file and generate summary - Updated to include URL"""
+        import json
+        import os
+        
         print(f"📄 Summarizing: {os.path.basename(text_filepath)}")
+        
+        # Load URL mappings
+        url_mappings = {}
+        try:
+            with open('url_mappings.json', 'r') as f:
+                url_mappings = json.load(f)
+        except FileNotFoundError:
+            print("⚠️  No URL mappings found")
+        
+        # Extract the original filename from the text filepath
+        # clean_normalized_name_20240101_120000.txt -> normalized_name_20240101_120000.html
+        text_filename = os.path.basename(text_filepath)
+        html_filename = None
+        url_data = {}
+        
+        if text_filename.startswith('clean_'):
+            html_filename = text_filename[6:]  # Remove 'clean_' prefix
+            html_filename = html_filename.replace('.txt', '.html')
+            
+            # Get URL data for this file
+            url_data = url_mappings.get(html_filename, {})
+            if url_data:
+                print(f"  🔗 Linked to URL: {url_data.get('url', 'Unknown')}")
+            else:
+                print(f"  ⚠️  No URL mapping found for: {html_filename}")
         
         # Read text content
         text_content = self.read_text_file(text_filepath)
@@ -186,9 +214,11 @@ Be objective and factual. Only return the JSON object, no additional text."""
         output_filename = f"summary_{input_filename}.json"
         output_filepath = os.path.join(self.output_dir, output_filename)
         
-        # Prepare output data
+        # Prepare output data with URL information
         output_data = {
             "source_file": text_filepath,
+            "source_url": url_data.get('url'),  # Add the actual URL
+            "url_id": url_data.get('url_id'),   # Add the URL ID for database linking
             "processed_at": datetime.now().isoformat(),
             "model_used": self.model,
             "raw_response": summary

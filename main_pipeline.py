@@ -197,26 +197,36 @@ class NewsPipeline:
             raise e
 
     def run_resource_cleanup_phase(self):
-        """Run the resource cleanup phase to remove temporary files"""
+        """Run the resource cleanup phase to remove temporary files - Updated to include URL mappings"""
         print("\n" + "="*60)
         print("PHASE 7: RESOURCE CLEANUP")
         print("="*60)
         
-
+        import glob
+        import os
+        
+        # Remove summary files
         files = glob.glob("summaries/*.json")
         for file in files:
             os.remove(file)
             print(f"Removed: {file}")
 
+        # Remove cleaned text files
         files = glob.glob("cleaned_text/*.txt")
         for file in files:
             os.remove(file)
             print(f"Removed: {file}")
 
+        # Remove scraped HTML files
         files = glob.glob("scraped_html/*.html")
         for file in files:
             os.remove(file)
             print(f"Removed: {file}")
+        
+        # Remove URL mappings file
+        if os.path.exists('url_mappings.json'):
+            os.remove('url_mappings.json')
+            print("Removed: url_mappings.json")
         
     def run_summary_translation_phase(self):
         """Run the summary translation phase to move AI summaries to the database"""

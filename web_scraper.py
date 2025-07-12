@@ -94,9 +94,12 @@ class NewsScraper:
         except Exception as e:
             print(f"Error scraping {url} with Selenium: {e}")
             return None
-    
-    def scrape_url(self, url):
-        """Scrape a single URL and save HTML"""
+
+    def scrape_url(self, url_data):
+        """Scrape a single URL and save HTML - Updated to return URL mapping"""
+        url = url_data['url']
+        url_id = url_data['db_id']
+        
         print(f"Scraping: {url}")
         
         # Get HTML content
@@ -119,28 +122,43 @@ class NewsScraper:
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(html_content)
             print(f"Saved: {filepath}")
-            return filepath
+            
+            # Return mapping of filepath to URL data
+            return {
+                'filepath': filepath,
+                'url': url,
+                'url_id': url_id,
+                'filename': filename
+            }
         except Exception as e:
             print(f"Error saving file: {e}")
             return None
-    
+
     def scrape_urls(self, urls):
-        """Scrape multiple URLs"""
+        """Scrape multiple URLs - Updated to track URL mappings"""
         scraped_files = []
         used_urls_ids = []
-        for url in urls:
-            print(url)
-            filepath = self.scrape_url(url['url'])
-            if filepath:
-                scraped_files.append(filepath)
-                used_urls_ids.append(url['db_id'])
-            
-            # Be respectful - add delay between requests
-            time.sleep(2)
+        url_mappings = {}  # filename -> url_data mapping
+        
+        for url_data in urls:
+            result = self.scrape_url(url_data)
+            if result:
+                scraped_files.append(result['filepath'])
+                used_urls_ids.append(url_data['db_id'])
+                # Store mapping for later use
+                url_mappings[result['filename']] = {
+                    'url': result['url'],
+                    'url_id': result['url_id']
+                }
+        
+        # Save URL mappings to a JSON file for the pipeline to use
+        import json
+        with open('url_mappings.json', 'w') as f:
+            json.dump(url_mappings, f, indent=2)
         
         marked_urls = self.db_manager.mark_urls_used_in_pipeline(used_urls_ids)
         return scraped_files
-    
+
     def close(self):
         """Clean up resources"""
         if self.driver:

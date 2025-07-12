@@ -58,7 +58,7 @@ class DatabaseManager:
         return conn
     
     def init_database(self):
-        """Initialize database with tables"""
+        """Initialize database with tables - Updated to include source_url column"""
         conn = self.get_connection()
         print("Initializing database...")
         try:
@@ -125,11 +125,12 @@ class DatabaseManager:
                 )
             ''')
 
-            # Create article summaries table
+            # Create article summaries table - UPDATED with source_url column
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS article_summaries (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     source_file TEXT NOT NULL,
+                    source_url TEXT,
                     processed_at TEXT NOT NULL DEFAULT (datetime('now')),
                     model_used TEXT NOT NULL,
                     raw_response TEXT NOT NULL,
@@ -162,24 +163,69 @@ class DatabaseManager:
             conn.execute('CREATE INDEX IF NOT EXISTS idx_collected_urls_batch_id ON collected_urls(collection_batch_id)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_collected_urls_domain ON collected_urls(domain)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_news_sources_active ON news_sources(active)')
-
-            # Add this with your other indexes
             conn.execute('CREATE INDEX IF NOT EXISTS idx_article_summaries_processed_at ON article_summaries(processed_at)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_article_summaries_sentiment ON article_summaries(sentiment)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_article_summaries_pipeline_run ON article_summaries(pipeline_run_id)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_article_summaries_confidence ON article_summaries(confidence_score)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_article_summaries_url ON article_summaries(source_url)')
             
             conn.commit()
             
-            # Migrate existing data if JSON files exist
-            # self._migrate_existing_data(conn)
+            # Check if source_url column exists, if not add it
+            try:
+                conn.execute('SELECT source_url FROM article_summaries LIMIT 1')
+            except:
+                # Column doesn't exist, add it
+                conn.execute('ALTER TABLE article_summaries ADD COLUMN source_url TEXT')
+                conn.commit()
+                print("Added source_url column to existing article_summaries table")
             
         except Exception as e:
             conn.rollback()
             raise e
         finally:
             conn.close()
-    
+
+    def add_article_summary(self, summary_data: Dict) -> bool:
+        """Add an article summary to the database - Updated to include source_url"""
+        conn = self.get_connection()
+        try:
+            parsed = summary_data.get('parsed_summary', {})
+            
+            conn.execute('''
+                INSERT OR REPLACE INTO article_summaries (
+                    source_file, source_url, processed_at, model_used, raw_response,
+                    summary, investment_implications, key_metrics, companies_mentioned,
+                    sectors_affected, sentiment, risk_factors, opportunities,
+                    time_horizon, confidence_score, pipeline_run_id, url_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                summary_data.get('source_file'),
+                summary_data.get('source_url'),  # NEW: Add the actual URL
+                summary_data.get('processed_at'),
+                summary_data.get('model_used'),
+                summary_data.get('raw_response'),
+                parsed.get('summary'),
+                parsed.get('investment_implications'),
+                json.dumps(parsed.get('key_metrics', [])),  # Store as JSON string
+                json.dumps(parsed.get('companies_mentioned', [])),
+                json.dumps(parsed.get('sectors_affected', [])),
+                parsed.get('sentiment'),
+                json.dumps(parsed.get('risk_factors', [])),
+                json.dumps(parsed.get('opportunities', [])),
+                parsed.get('time_horizon'),
+                parsed.get('confidence_score'),
+                summary_data.get('pipeline_run_id'),
+                summary_data.get('url_id')  # This will now be properly set
+            ))
+            conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error adding summary to database: {e}")
+            return False
+        finally:
+            conn.close()
+        
     def _migrate_existing_data(self, conn):
         """Migrate data from JSON files to database"""
         # Migrate news sources
